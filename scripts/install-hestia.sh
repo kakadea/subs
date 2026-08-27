@@ -57,9 +57,15 @@ log "instalando templates subs no HestiaCP"
 install -o root -g root -m 0644 deploy/hestia/subs.tpl "$HESTIA_ROOT/data/templates/web/nginx/subs.tpl"
 install -o root -g root -m 0644 deploy/hestia/subs.stpl "$HESTIA_ROOT/data/templates/web/nginx/subs.stpl"
 
-log "construindo o app e subindo a stack inicial"
+log "subindo o MariaDB isolado"
+"${COMPOSE[@]}" up -d mariadb
+
+log "construindo somente o app"
 "${COMPOSE[@]}" build app
-"${COMPOSE[@]}" up -d --remove-orphans
+"${COMPOSE[@]}" up -d --no-deps app
+
+log "subindo o Nginx interno"
+"${COMPOSE[@]}" up -d nginx-files
 
 log "validando serviço local em 127.0.0.1:8081"
 for attempt in $(seq 1 30); do
