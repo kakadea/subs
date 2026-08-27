@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+/bin/
+/dist/
+coverage.out
+storage/subtitles/*
+storage/temp/*
+storage/quarantine/*
+!storage/subtitles/.gitkeep
+!storage/temp/.gitkeep
+!storage/quarantine/.gitkeep

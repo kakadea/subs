@@ -1,0 +1,34 @@
+{{define "base.html"}}
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+  <title>{{.Title}} · Subs</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav-wrap">
+      <a class="brand" href="/" aria-label="Subs início"><span class="brand-mark">S</span><span>subs</span></a>
+      <nav class="nav" aria-label="Navegação principal">
+        <a href="/">Catálogo</a>
+        {{if .User}}
+          {{if .User.IsAdmin}}<a href="/admin">Painel</a>{{end}}
+          <form method="post" action="/logout" class="inline-form"><button class="nav-button" type="submit">Sair</button></form>
+        {{else}}
+          <a class="nav-login" href="/login">Entrar</a>
+        {{end}}
+      </nav>
+    </div>
+  </header>
+  <main class="container main-content">
+    {{template "content" .}}
+  </main>
+  <footer class="site-footer">
+    <div class="container footer-inner"><span>Subs · distribuição privada de legendas</span><span>Armazenamento seguro, acesso simples.</span></div>
+  </footer>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,32 @@
+{{define "content"}}
+<section class="hero">
+  <div class="eyebrow">Biblioteca de legendas</div>
+  <h1>Encontre a legenda certa<br><em>para cada episódio.</em></h1>
+  <p class="hero-copy">Um catálogo organizado para armazenar, atualizar e compartilhar suas legendas com segurança.</p>
+  <form class="search-form" method="get" action="/" role="search">
+    <label class="sr-only" for="catalog-search">Pesquisar catálogo</label>
+    <input id="catalog-search" name="q" value="{{.Query}}" placeholder="Buscar por título, episódio ou idioma" autocomplete="off">
+    <button type="submit">Pesquisar</button>
+  </form>
+</section>
+
+<section class="section-head">
+  <div><div class="eyebrow">Catálogo público</div><h2>{{if .Query}}Resultados para “{{.Query}}”{{else}}Legendas recentes{{end}}</h2></div>
+  <span class="result-count">{{len .Subtitles}} itens</span>
+</section>
+
+{{if .Subtitles}}
+<div class="subtitle-grid">
+  {{range .Subtitles}}
+  <article class="subtitle-card">
+    <div class="card-top"><span class="format-tag">.{{lower .Format}}</span><span class="visibility-dot {{.Visibility}}">{{.Visibility}}</span></div>
+    <h3><a href="/s/{{.PublicID}}">{{.Title}}</a></h3>
+    <p class="meta">{{if .Season}}Temporada {{.Season}} · {{end}}{{if .Episode}}Episódio {{.Episode}}{{else}}Legenda completa{{end}}</p>
+    <div class="card-bottom"><span>{{.Language}}</span><span>{{bytes .FileSize}}</span></div>
+  </article>
+  {{end}}
+</div>
+{{else}}
+<div class="empty-state"><div class="empty-icon">⌕</div><h3>Nenhuma legenda encontrada</h3><p>Tente outro termo ou volte mais tarde para conferir novos envios.</p></div>
+{{end}}
+{{end}}

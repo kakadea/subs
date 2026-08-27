@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+!.env.example
+*.log
+storage/subtitles/*
+storage/temp/*
+storage/quarantine/*
+README.md
+deploy/hestia

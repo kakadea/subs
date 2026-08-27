@@ -1,0 +1,24 @@
+{{define "content"}}
+{{with .Subtitle}}
+<section class="detail-hero">
+  <a class="back-link" href="/">← Voltar ao catálogo</a>
+  <div class="detail-layout">
+    <div>
+      <div class="eyebrow">Detalhes da legenda</div>
+      <h1>{{.Title}}</h1>
+      <p class="detail-subtitle">{{if .Season}}Temporada {{.Season}} · {{end}}{{if .Episode}}Episódio {{.Episode}}{{else}}Arquivo de legenda{{end}}</p>
+    </div>
+    <div class="detail-format">.{{lower .Format}}</div>
+  </div>
+</section>
+<section class="detail-card">
+  <div class="detail-grid">
+    <div><span class="field-label">Idioma</span><strong>{{.Language}}</strong></div>
+    <div><span class="field-label">Versão</span><strong>{{.Version}}</strong></div>
+    <div><span class="field-label">Tamanho</span><strong>{{bytes .FileSize}}</strong></div>
+    <div><span class="field-label">Arquivo</span><strong>{{.OriginalFilename}}</strong></div>
+  </div>
+  <div class="detail-actions"><a class="primary-button" href="/download/{{.PublicID}}">Baixar legenda <span>↓</span></a><span class="checksum">SHA-256 · {{.Checksum}}</span></div>
+</section>
+{{end}}
+{{end}}
