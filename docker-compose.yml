@@ -40,6 +40,7 @@ services:
       - app
     networks:
       - subs_internal
+      - subs_edge
 
   mariadb:
     image: mariadb:11.4
@@ -64,6 +65,8 @@ networks:
   subs_internal:
     driver: bridge
     internal: true
+  subs_edge:
+    driver: bridge
 
 volumes:
   subtitles_data:

@@ -69,8 +69,8 @@ log "construindo somente o app"
 "${COMPOSE[@]}" build app
 "${COMPOSE[@]}" up -d --no-deps app
 
-log "subindo o Nginx interno"
-"${COMPOSE[@]}" up -d nginx-files
+log "subindo o Nginx interno com rede de borda"
+"${COMPOSE[@]}" up -d --force-recreate --no-deps nginx-files
 
 log "validando serviço local em 127.0.0.1:18180"
 for attempt in $(seq 1 30); do
