@@ -14,7 +14,7 @@ chmod +x scripts/*.sh
 sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
 ```
 
-O instalador perguntará apenas a URL pública, o e-mail e a senha do administrador na primeira execução. Ele gera os demais segredos automaticamente, cria o arquivo `.env` com permissão restrita (`600`) e deixa o upstream pronto em `127.0.0.1:8081`.
+O instalador perguntará apenas a URL pública, o e-mail e a senha do administrador na primeira execução. Ele gera os demais segredos automaticamente, cria o arquivo `.env` com permissão restrita (`600`) e deixa o upstream pronto em `127.0.0.1:18180`.
 
 Se o checkout ainda não existir, coloque o repositório no diretório de trabalho usando o método de acesso Git já configurado no servidor. A partir daí, não há login de registry, token de pacote ou GitHub CLI no ciclo de deploy.
 
@@ -46,7 +46,7 @@ Não há `docker login`, GHCR, PAT ou GitHub CLI nesse ciclo.
 
 ## 3. Configuração no HestiaCP
 
-O instalador configura automaticamente o proxy do domínio usando o template customizado `subs`, com upstream em `http://127.0.0.1:8081`. Ele usa a CLI oficial `v-add-web-domain-proxy` para domínios sem proxy e `v-change-web-domain-proxy-tpl` para domínios que já possuem proxy. Depois disso, as atualizações normais não reaplicam o template nem reiniciam o Hestia; só recriam o container `app`.
+O instalador configura automaticamente o proxy do domínio usando o template customizado `subs`, com upstream em `http://127.0.0.1:18180`. Ele usa a CLI oficial `v-add-web-domain-proxy` para domínios sem proxy e `v-change-web-domain-proxy-tpl` para domínios que já possuem proxy. Depois disso, as atualizações normais não reaplicam o template nem reiniciam o Hestia; só recriam o container `app`.
 
 Se quiser conferir no painel, o domínio deve estar com **Proxy Support** ativo. O certificado TLS continua sendo gerenciado pelo HestiaCP; o container não publica HTTPS próprio.
 

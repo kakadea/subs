@@ -34,8 +34,13 @@ if ! "$HESTIA_ROOT/bin/v-list-web-domain" "$HESTIA_USER" "$DOMAIN" json >/dev/nu
 fi
 
 LOCAL_PROXY_PORT="$(awk -F= '$1 == "LOCAL_PROXY_PORT" {print $2}' "$ENV_FILE" | tail -n 1)"
-LOCAL_PROXY_PORT="${LOCAL_PROXY_PORT:-8081}"
-[[ "$LOCAL_PROXY_PORT" == "8081" ]] || die "LOCAL_PROXY_PORT precisa ser 8081 para coincidir com o template Hestia subs"
+LOCAL_PROXY_PORT="${LOCAL_PROXY_PORT:-18180}"
+if [[ "$LOCAL_PROXY_PORT" == "8081" ]]; then
+  sed -i 's/^LOCAL_PROXY_PORT=.*/LOCAL_PROXY_PORT=18180/' "$ENV_FILE"
+  LOCAL_PROXY_PORT=18180
+  log "porta antiga 8081 detectada; migrada automaticamente para 18180"
+fi
+[[ "$LOCAL_PROXY_PORT" == "18180" ]] || die "LOCAL_PROXY_PORT precisa ser 18180 para coincidir com o template Hestia subs"
 
 if [[ -f "$HESTIA_ROOT/conf/hestia.conf" ]]; then
   # shellcheck disable=SC1091
@@ -67,12 +72,12 @@ log "construindo somente o app"
 log "subindo o Nginx interno"
 "${COMPOSE[@]}" up -d nginx-files
 
-log "validando serviço local em 127.0.0.1:8081"
+log "validando serviço local em 127.0.0.1:18180"
 for attempt in $(seq 1 30); do
-  if curl -fsS --max-time 2 http://127.0.0.1:8081/healthz >/dev/null 2>&1; then
+  if curl -fsS --max-time 2 http://127.0.0.1:18180/healthz >/dev/null 2>&1; then
     break
   fi
-  [[ "$attempt" -eq 30 ]] && die "o Nginx interno não respondeu em 127.0.0.1:8081"
+  [[ "$attempt" -eq 30 ]] && die "o Nginx interno não respondeu em 127.0.0.1:18180"
   sleep 2
 done
 
@@ -96,7 +101,7 @@ cat <<EOF
 [subs] INSTALAÇÃO CONCLUÍDA
 
 Domínio:    https://$DOMAIN
-Upstream:   http://127.0.0.1:8081
+Upstream:   http://127.0.0.1:18180
 Template:   subs
 
 O HestiaCP continua na frente terminando TLS e encaminhando o domínio para o Nginx interno Docker.

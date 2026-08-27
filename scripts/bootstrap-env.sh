@@ -11,8 +11,8 @@ fi
 
 command -v openssl >/dev/null 2>&1 || { echo "openssl é obrigatório." >&2; exit 1; }
 
-read -r -p "URL pública [https://subs.example.com]: " BASE_URL
-BASE_URL="${BASE_URL:-https://subs.example.com}"
+read -r -p "URL pública [https://subtitle.oldagesubs.com.br]: " BASE_URL
+BASE_URL="${BASE_URL:-https://subtitle.oldagesubs.com.br}"
 read -r -p "E-mail do administrador: " ADMIN_EMAIL
 if [[ -z "$ADMIN_EMAIL" || "$ADMIN_EMAIL" != *@*.* ]]; then
   echo "Informe um e-mail válido." >&2
@@ -41,7 +41,7 @@ umask 077
 cat > .env <<EOF
 BASE_URL=$BASE_URL
 COOKIE_SECURE=true
-LOCAL_PROXY_PORT=8081
+LOCAL_PROXY_PORT=18180
 MAX_UPLOAD_MB=25
 SESSION_TTL_HOURS=168
 DOWNLOAD_LINK_TTL_HOURS=24
