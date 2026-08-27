@@ -48,6 +48,19 @@ func TestMariaDBIntegration(t *testing.T) {
 	if _, err := st.GetSessionUser(ctx, session); err != nil {
 		t.Fatal(err)
 	}
+	newPassword := "Nova#senha = segura$2026"
+	if err := st.SetAdminPassword(ctx, "admin@test.local", newPassword); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Authenticate(ctx, "admin@test.local", "a-very-long-test-password"); err != ErrNotFound {
+		t.Fatalf("old password should be rejected, got %v", err)
+	}
+	if _, err := st.Authenticate(ctx, "admin@test.local", newPassword); err != nil {
+		t.Fatalf("new password should authenticate: %v", err)
+	}
+	if _, err := st.GetSessionUser(ctx, session); err != ErrNotFound {
+		t.Fatalf("old session should be invalidated, got %v", err)
+	}
 	sub := Subtitle{PublicID: "0123456789abcdef0123456789abcdef", Title: "Test", Format: "srt", OriginalFilename: "test.srt", StorageName: "0123456789012345678901234567890123456789012345678901234567890123.srt", StoragePath: "subtitles/01/23/file.srt", FileSize: 42, Checksum: "0123456789012345678901234567890123456789012345678901234567890123", Version: "1.0", Visibility: "public", CreatedBy: admin.ID}
 	if err := st.CreateSubtitle(ctx, sub); err != nil {
 		t.Fatal(err)

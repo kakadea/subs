@@ -15,7 +15,7 @@
       <nav class="nav" aria-label="Navegação principal">
         <a href="/">Catálogo</a>
         {{if .User}}
-          {{if .User.IsAdmin}}<a href="/admin">Painel</a>{{end}}
+          {{if .User.IsAdmin}}<a href="/admin">Painel</a><a href="/admin/account">Conta</a>{{end}}
           <form method="post" action="/logout" class="inline-form"><button class="nav-button" type="submit">Sair</button></form>
         {{else}}
           <a class="nav-login" href="/login">Entrar</a>

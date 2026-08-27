@@ -72,6 +72,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /", a.catalog)
 	mux.HandleFunc("GET /login", a.loginPage)
 	mux.HandleFunc("POST /login", a.login)
+	mux.HandleFunc("GET /admin/account", a.accountPage)
+	mux.HandleFunc("POST /admin/account/password", a.changePassword)
 	mux.HandleFunc("POST /logout", a.logout)
 	mux.HandleFunc("GET /s/{id}", a.detail)
 	mux.HandleFunc("GET /download/{id}", a.download)
@@ -134,7 +136,7 @@ func (a *App) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
-	a.render(w, "login.html", ViewData{Title: "Entrar"})
+	a.render(w, "login.html", ViewData{Title: "Entrar", Success: r.URL.Query().Get("success")})
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
@@ -250,6 +252,55 @@ func (a *App) admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.render(w, "admin.html", ViewData{Title: "Painel", User: &user, CSRF: a.ensureCSRF(w, r), Query: query, Subtitles: subs, Success: r.URL.Query().Get("success"), Link: r.URL.Query().Get("link"), MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+}
+
+func (a *App) accountPage(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	a.render(w, "account.html", ViewData{Title: "Conta", User: &user, CSRF: a.ensureCSRF(w, r)})
+}
+
+func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		a.render(w, "account.html", ViewData{Title: "Conta", User: &user, CSRF: a.ensureCSRF(w, r), Error: "Formulário inválido."})
+		return
+	}
+	if !a.validCSRF(r) {
+		a.render(w, "account.html", ViewData{Title: "Conta", User: &user, CSRF: a.ensureCSRF(w, r), Error: "A sessão do formulário expirou. Recarregue a página e tente novamente."})
+		return
+	}
+	currentPassword := r.FormValue("current_password")
+	newPassword := r.FormValue("new_password")
+	confirmation := r.FormValue("new_password_confirmation")
+	if len(newPassword) < 12 {
+		a.render(w, "account.html", ViewData{Title: "Conta", User: &user, CSRF: a.ensureCSRF(w, r), Error: "A nova senha precisa ter pelo menos 12 caracteres."})
+		return
+	}
+	if newPassword != confirmation {
+		a.render(w, "account.html", ViewData{Title: "Conta", User: &user, CSRF: a.ensureCSRF(w, r), Error: "A confirmação da nova senha não confere."})
+		return
+	}
+	if _, err := a.store.Authenticate(r.Context(), user.Email, currentPassword); err != nil {
+		a.render(w, "account.html", ViewData{Title: "Conta", User: &user, CSRF: a.ensureCSRF(w, r), Error: "A senha atual está incorreta."})
+		return
+	}
+	if err := a.store.SetAdminPassword(r.Context(), user.Email, newPassword); err != nil {
+		a.serverError(w, err)
+		return
+	}
+	_ = a.store.Audit(r.Context(), &user.ID, "password_change", nil, clientIP(r), "")
+	clearCookie := func(name string) {
+		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, HttpOnly: name == a.cfg.SessionCookieName, Secure: a.cfg.CookieSecure, SameSite: http.SameSiteStrictMode})
+	}
+	clearCookie(a.cfg.SessionCookieName)
+	clearCookie("subs_csrf")
+	http.Redirect(w, r, "/login?success="+url.QueryEscape("Senha alterada. Faça login novamente."), http.StatusSeeOther)
 }
 
 func (a *App) uploadPage(w http.ResponseWriter, r *http.Request) {

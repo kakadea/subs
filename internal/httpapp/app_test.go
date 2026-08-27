@@ -30,7 +30,7 @@ func TestFormatBytes(t *testing.T) {
 
 func TestRenderTemplates(t *testing.T) {
 	a := New(config.Config{}, store.New(nil), slog.Default())
-	pages := []string{"catalog.html", "login.html", "detail.html", "admin.html", "upload.html"}
+	pages := []string{"catalog.html", "login.html", "detail.html", "admin.html", "upload.html", "account.html"}
 	for _, page := range pages {
 		recorder := httptest.NewRecorder()
 		a.render(recorder, page, ViewData{Title: "Test", Query: "", Subtitles: []store.Subtitle{{PublicID: "abc", Title: "Test", Format: "srt", Visibility: "public", Language: "Português", FileSize: 1024}}})

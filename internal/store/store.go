@@ -136,9 +136,6 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func (s *Store) EnsureAdmin(ctx context.Context, email, password string) error {
-	if strings.TrimSpace(email) == "" || len(password) < 12 {
-		return fmt.Errorf("ADMIN_EMAIL and ADMIN_PASSWORD with at least 12 characters are required")
-	}
 	var count int
 	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&count); err != nil {
 		return err
@@ -146,12 +143,48 @@ func (s *Store) EnsureAdmin(ctx context.Context, email, password string) error {
 	if count > 0 {
 		return nil
 	}
+	if strings.TrimSpace(email) == "" || len(password) < 12 {
+		return fmt.Errorf("ADMIN_EMAIL and ADMIN_PASSWORD with at least 12 characters are required for the first admin")
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("hash admin password: %w", err)
 	}
 	_, err = s.DB.ExecContext(ctx, `INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'admin')`, strings.ToLower(strings.TrimSpace(email)), string(hash))
 	return err
+}
+
+func (s *Store) SetAdminPassword(ctx context.Context, email, password string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" || len(password) < 12 {
+		return fmt.Errorf("admin email is required and password must contain at least 12 characters")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash admin password: %w", err)
+	}
+
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var userID uint64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE email = ? AND role = 'admin' FOR UPDATE`, email).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("admin user not found: %s", email)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, string(hash), userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Authenticate(ctx context.Context, email, password string) (User, error) {

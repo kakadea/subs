@@ -1,0 +1,27 @@
+{{define "content"}}
+<section class="admin-head">
+  <div>
+    <a class="back-link" href="/admin">← Voltar ao painel</a>
+    <div class="eyebrow">Área restrita · {{.User.Email}}</div>
+    <h1>Segurança da conta</h1>
+    <p class="muted">Troque a senha do administrador sem alterar o arquivo de ambiente.</p>
+  </div>
+</section>
+
+<div class="auth-shell">
+  <div class="auth-card">
+    {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+    <form method="post" action="/admin/account/password" class="stack-form">
+      <input type="hidden" name="_csrf" value="{{.CSRF}}">
+      <label for="current-password">Senha atual</label>
+      <input id="current-password" name="current_password" type="password" required autocomplete="current-password">
+      <label for="new-password">Nova senha</label>
+      <input id="new-password" name="new_password" type="password" required minlength="12" autocomplete="new-password">
+      <label for="new-password-confirmation">Repita a nova senha</label>
+      <input id="new-password-confirmation" name="new_password_confirmation" type="password" required minlength="12" autocomplete="new-password">
+      <p class="form-help">Use pelo menos 12 caracteres. Espaços e caracteres especiais são aceitos.</p>
+      <button class="primary-button" type="submit">Alterar senha <span>→</span></button>
+    </form>
+  </div>
+</div>
+{{end}}

@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +23,13 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	if len(os.Args) > 1 && os.Args[1] == "admin-password" {
+		if err := changeAdminPassword(logger, os.Args[2:]); err != nil {
+			logger.Error("admin password change failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("invalid configuration", "error", err)
@@ -83,6 +93,42 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("server stopped")
+}
+
+func changeAdminPassword(logger *slog.Logger, args []string) error {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		return fmt.Errorf("usage: subs admin-password ADMIN_EMAIL; read the new password from stdin")
+	}
+	password, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("read password from stdin: %w", err)
+	}
+	password = bytes.TrimRight(password, "\r\n")
+	if len(password) < 12 {
+		return fmt.Errorf("password must contain at least 12 characters")
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	db, err := openDatabase(cfg.DatabaseDSN, logger)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	st := store.New(db)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := st.Migrate(ctx); err != nil {
+		return err
+	}
+	if err := st.SetAdminPassword(ctx, args[0], string(password)); err != nil {
+		return err
+	}
+	fmt.Println("admin password changed")
+	return nil
 }
 
 func openDatabase(dsn string, logger *slog.Logger) (*sql.DB, error) {

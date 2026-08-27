@@ -35,14 +35,23 @@ sudo mkdir -p /opt/subs
 sudo git clone https://github.com/kakadea/subs.git /opt/subs/src
 cd /opt/subs/src
 chmod +x scripts/*.sh
-sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
+sudo ./scripts/install-hestia.sh legenda.seudominio.com usuario_hestia
 ```
 
 O arquivo `.env` fica persistido no servidor e não é sobrescrito. O guia detalhado de instalação, HestiaCP, atualização, backup e operação está em [`docs/OPERACAO.md`](docs/OPERACAO.md).
 
-Acesse `https://seu-dominio/` pelo HestiaCP. Para desenvolvimento direto, use `BASE_URL=http://localhost:8081` e `COOKIE_SECURE=false` no `.env`, e abra `http://127.0.0.1:8081`.
+Acesse `https://seu-dominio/` pelo HestiaCP. Para desenvolvimento direto, use `BASE_URL=http://localhost:8080` e `COOKIE_SECURE=false` no `.env`, e abra `http://127.0.0.1:8080`.
 
-A primeira inicialização cria o usuário administrador definido por `ADMIN_EMAIL` e `ADMIN_PASSWORD`. Se já existir um administrador, os valores de bootstrap não alteram a conta existente.
+A primeira inicialização cria o usuário administrador definido por `ADMIN_EMAIL` e `ADMIN_PASSWORD`. Se já existir um administrador, os valores de bootstrap não alteram a conta existente. Depois do primeiro bootstrap, essas duas variáveis podem ser removidas do `.env`; as credenciais persistidas são os hashes bcrypt gravados no MariaDB.
+
+Para trocar a senha sem editar o `.env` e sem expor a nova senha no histórico do shell, execute no checkout do servidor:
+
+```bash
+cd /opt/subs/src
+sudo ./scripts/change-admin-password.sh
+```
+
+O script pede o e-mail, a senha duas vezes e aceita caracteres especiais, inclusive espaços, `#`, `=` e `$`. A nova senha é enviada apenas por stdin ao container, todas as sessões anteriores são invalidadas e será necessário fazer login novamente.
 
 ## Como buildar
 
@@ -59,7 +68,7 @@ O script executa `docker compose build app` e `docker compose up -d --no-deps ap
 
 ## Integração com HestiaCP
 
-O Compose publica somente `127.0.0.1:8081`, conforme a recomendação de não deixar a API exposta. No domínio do Hestia, use um template Nginx customizado que encaminhe todas as requisições para `http://127.0.0.1:8081`.
+O Compose publica somente `127.0.0.1:18180`, conforme a recomendação de não deixar a API exposta. No domínio do Hestia, use um template Nginx customizado que encaminhe todas as requisições para `http://127.0.0.1:18180`.
 
 O exemplo está em [`deploy/hestia/README.md`](deploy/hestia/README.md). Não edite os templates padrão do Hestia; atualizações e rebuilds podem sobrescrevê-los. Crie uma cópia customizada, habilite-a no domínio e reconstrua a configuração quando necessário.
 
@@ -72,7 +81,7 @@ docker compose logs -f nginx-files
 curl -fsS https://seu-dominio/healthz
 ```
 
-Para backup, copie o volume `mariadb_data` usando uma rotina consistente do MariaDB e mantenha uma cópia do volume `subtitles_data`. O `.env` contém segredos e nunca deve ser versionado.
+Para backup, copie o volume `mariadb_data` usando uma rotina consistente do MariaDB e mantenha uma cópia do volume `subtitles_data`. O `.env` contém segredos, deve ficar fora do Git e com permissão `600`; ele não fica dentro da área pública do Hestia nem é servido pelo Nginx.
 
 ## Estrutura
 

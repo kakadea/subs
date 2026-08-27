@@ -53,9 +53,29 @@ Se quiser conferir no painel, o domínio deve estar com **Proxy Support** ativo.
 ## 4. Boas Práticas lá dentro
 
 ### Segurança
-- **Nunca versionar o `.env`:** Ele contém as senhas do banco e a chave de sessão. O `.gitignore` já está configurado para protegê-lo.
-- **Permissões:** O arquivo `.env` deve ser `600` (apenas seu usuário lê).
+- **Nunca versionar o `.env`:** Ele contém as senhas do banco e a chave de sessão. O `.gitignore` e o `.dockerignore` já estão configurados para não enviá-lo ao Git nem para dentro da imagem.
+- **Permissões:** O arquivo `/opt/subs/src/.env` deve ser `600`, preferencialmente pertencente a `root:root`. Assim, usuários comuns não conseguem lê-lo. Pessoas com acesso `root` ou permissão administrativa sobre o Docker podem, por definição, acessar segredos do servidor; essa é uma limitação do modelo de host e não deve ser confundida com exposição pública.
+- **Exposição web:** O checkout em `/opt/subs/src` não é o `public_html` do Hestia. O Nginx interno serve a aplicação e o volume privado de legendas, não o arquivo `.env`; ele também não é incluído na imagem Docker.
+- **Senha inicial:** `ADMIN_EMAIL` e `ADMIN_PASSWORD` servem somente para criar o primeiro administrador. Depois que já existe um admin, editar essas variáveis não troca a senha armazenada no MariaDB.
 - **Usuário não-root:** A aplicação Go dentro do Docker roda como usuário `subs`, não como `root`.
+
+### Troca da senha administrativa
+
+Não altere `ADMIN_PASSWORD` esperando que a senha existente seja substituída. Use o script abaixo, que pede a senha interativamente e a envia pelo stdin, sem colocá-la na linha de comando, no histórico do shell ou nos logs:
+
+```bash
+cd /opt/subs/src
+sudo ./scripts/change-admin-password.sh
+```
+
+A senha deve ter pelo menos 12 caracteres e pode conter espaços e caracteres como `#`, `=`, `$`, `!` e `@`. O comando grava somente o hash bcrypt no MariaDB, invalida as sessões administrativas existentes e não imprime a senha. Após confirmar que o novo login funciona, as duas variáveis de bootstrap podem ser removidas sem afetar a conta:
+
+```bash
+sudo sed -i '/^ADMIN_PASSWORD=/d; /^ADMIN_EMAIL=/d' /opt/subs/src/.env
+sudo chmod 600 /opt/subs/src/.env
+```
+
+Esse último passo é opcional, mas reduz a quantidade de segredos operacionais mantidos no ambiente do container.
 
 ### Organização de Arquivos
 - **Storage:** As legendas ficam no volume `subtitles_data`. Não tente acessá-las pela pasta `public_html` do Hestia; elas são privadas.
