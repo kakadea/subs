@@ -20,7 +20,6 @@ fi
 COMPOSE=("${DOCKER[@]}" compose --env-file "$ENV_FILE")
 "${COMPOSE[@]}" config --quiet
 "${COMPOSE[@]}" pull
-"${COMPOSE[@]}" build --pull app
 "${COMPOSE[@]}" up -d --remove-orphans
 "${COMPOSE[@]}" ps
 

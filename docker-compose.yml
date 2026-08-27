@@ -1,8 +1,6 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/kakadea/subs:latest
     restart: unless-stopped
     environment:
       ADDR: ":8080"
