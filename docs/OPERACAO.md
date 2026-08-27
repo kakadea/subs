@@ -4,24 +4,22 @@ Este guia ensina como instalar, atualizar e manter a plataforma `subs` no seu se
 
 ## 1. Instalação Inicial
 
-No seu servidor (via SSH):
+No seu servidor (via SSH), faça o login do Docker no GHCR uma única vez e execute o instalador. Ele cria o `.env`, baixa a imagem pronta, sobe os containers, instala o template proxy e configura o domínio no HestiaCP:
 
 ```bash
-# 1. Clone o repositório
+# Login único para baixar a imagem privada
+echo 'SEU_TOKEN_READ_PACKAGES' | sudo docker login ghcr.io -u SEU_USUARIO --password-stdin
+
+# Clone e instalação completa
 gh repo clone kakadea/subs
 cd subs
-
-# 2. Torne os scripts executáveis
 chmod +x scripts/*.sh
-
-# 3. Gere o ambiente (responda as perguntas)
-./scripts/bootstrap-env.sh
-
-# 4. Inicie a plataforma
-./scripts/deploy.sh
+sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
 ```
 
-O script `bootstrap-env.sh` gera segredos fortes automaticamente e cria o arquivo `.env` com permissão restrita (`600`).
+O instalador perguntará apenas a URL pública, o e-mail e a senha do administrador na primeira execução. Ele gera os demais segredos automaticamente, cria o arquivo `.env` com permissão restrita (`600`) e deixa o upstream pronto em `127.0.0.1:8081`.
+
+Se preferir executar as etapas separadas, use `./scripts/bootstrap-env.sh` e depois `sudo ./scripts/install-hestia.sh legenda.seudominio.com usuario_hestia`.
 
 ## 2. Como Atualizar (Sem `cp` e sem build local)
 
@@ -46,11 +44,9 @@ Se o usuário ainda não tiver permissão para usar o Docker sem `sudo`, use `su
 
 ## 4. Configuração no HestiaCP
 
-O Docker está rodando internamente na porta `8081`. Você precisa dizer ao HestiaCP para mandar o tráfego do seu domínio para lá.
+O instalador configura automaticamente o proxy do domínio usando o template customizado `subs`, com upstream em `http://127.0.0.1:8081`. Ele usa a CLI oficial `v-add-web-domain-proxy` para domínios sem proxy e `v-change-web-domain-proxy-tpl` para domínios que já possuem proxy. Não é necessário editar o Nginx gerado manualmente.
 
-1.  No HestiaCP, vá em **Web** -> **Seu Domínio** -> **Edit**.
-2.  Habilite **Proxy Support**.
-3.  O ideal é criar um template customizado (veja `deploy/hestia/README.md`), mas para um teste rápido, você pode usar o template `default` e garantir que o domínio aponte para `http://127.0.0.1:8081`.
+Se quiser conferir no painel, o domínio deve estar com **Proxy Support** ativo. O certificado TLS continua sendo gerenciado pelo HestiaCP; o container não publica HTTPS próprio.
 
 ## 5. Boas Práticas lá dentro
 
@@ -81,3 +77,10 @@ O Docker está rodando internamente na porta `8081`. Você precisa dizer ao Hest
 ---
 
 **Dica de Ouro:** Se você mudar de servidor, clone o repositório novamente, rode o bootstrap uma vez, autentique o Docker no GHCR e restaure os dados/volumes. O `.env` continua separado do código e não precisa ser recriado a cada deploy.
+
+
+## Referência oficial usada para automação do HestiaCP
+
+A CLI oficial do HestiaCP fornece `v-add-web-domain-proxy USER DOMAIN PROXY_TPL [RESTART]` para adicionar uma configuração de proxy sem sobrescrever as configurações existentes e `v-change-web-domain-proxy-tpl USER DOMAIN TEMPLATE [EXTENSIONS] [RESTART]` para trocar o template de proxy. O instalador usa essas operações com o template customizado `subs`, em vez de editar diretamente o arquivo gerado do domínio. Referência: https://hestiacp.com/docs/reference/cli
+
+O Hestia mantém os templates em `/usr/local/hestia/data/templates/web/nginx/` e recomenda copiar/criar templates próprios, pois rebuilds e atualizações podem sobrescrever templates padrão. Referência: https://hestiacp.com/docs/server-administration/web-templates

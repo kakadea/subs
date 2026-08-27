@@ -2,7 +2,19 @@
 
 O HestiaCP deve permanecer responsável pelo domínio, certificado TLS e proxy reverso público. A aplicação não deve abrir uma porta pública própria.
 
-## 1. Subir o Compose
+## Instalação automática recomendada
+
+Na raiz do repositório, depois de autenticar o Docker no GHCR:
+
+```bash
+sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
+```
+
+O instalador é idempotente. Ele instala os templates `subs.tpl`/`subs.stpl`, baixa a imagem pronta, sobe o Compose em `127.0.0.1:8081`, detecta se o domínio já possui proxy e usa `v-add-web-domain-proxy` ou `v-change-web-domain-proxy-tpl` conforme necessário. O Hestia permanece na frente e continua gerenciando TLS.
+
+## Instalação manual (se necessário)
+
+### 1. Subir o Compose
 
 Na máquina que hospeda o HestiaCP:
 
@@ -15,7 +27,7 @@ docker compose up -d --build
 
 O Compose publica somente `127.0.0.1:8081` para o Nginx interno. A API Go e o MariaDB ficam somente na rede Docker.
 
-## 2. Proxy no domínio do Hestia
+### 2. Proxy no domínio do Hestia
 
 Crie um template Nginx customizado do Hestia, em vez de editar o template padrão. O Hestia pode reconstruir os arquivos do domínio durante atualizações ou rebuilds.
 
@@ -40,7 +52,7 @@ location / {
 
 Ajuste o template `.tpl` e `.stpl` conforme o modo HTTP e HTTPS do domínio. Ative-o no domínio e reconstrua a configuração pelo painel ou por `v-rebuild-user`.
 
-## 3. Storage e X-Accel-Redirect
+### 3. Storage e X-Accel-Redirect
 
 O Nginx do Hestia não deve receber o volume privado. O Nginx interno do Compose possui o volume como leitura e entrega o arquivo somente depois que a API Go autoriza a requisição.
 
@@ -56,7 +68,7 @@ location /protected/ {
 
 Uma requisição pública direta para `/protected/` deve retornar 404. O fluxo válido é `/download/{id}` ou `/l/{token}`; a API então responde com `X-Accel-Redirect`.
 
-## 4. Verificação
+### 4. Verificação
 
 ```bash
 curl -fsS https://subs.example.com/healthz
@@ -66,7 +78,7 @@ ss -ltnp | grep 8081
 
 O healthcheck deve responder `{"status":"ok"}`. O path protegido deve ser inacessível diretamente. A porta 8081 deve estar ligada apenas a `127.0.0.1`.
 
-## Observações
+### Observações
 
 O Hestia deve terminar TLS e encaminhar o header `X-Forwarded-Proto`. O cookie seguro pode permanecer habilitado porque o navegador acessa o domínio por HTTPS, mesmo que o proxy entre Hestia e Docker use HTTP local.
 

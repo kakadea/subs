@@ -28,17 +28,23 @@ Downloads não são transmitidos pelo processo Go. A API valida o acesso e respo
 
 ## Execução local com Docker
 
-Na primeira instalação, use o bootstrap interativo para gerar o `.env` sem precisar copiar o arquivo de exemplo:
+Na primeira instalação em um servidor com HestiaCP, o comando recomendado é único: ele cria o `.env`, baixa a imagem pronta do GHCR, sobe o Docker e configura o proxy do domínio no HestiaCP.
 
 ```bash
-chmod +x scripts/*.sh
-./scripts/bootstrap-env.sh
-./scripts/deploy.sh
+sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
 ```
 
-O arquivo `.env` fica persistido no servidor e o bootstrap não o sobrescreve. Em instalações manuais, também é possível usar `cp .env.example .env`, editar os segredos e executar `docker compose up -d --build`.
+Antes da primeira execução, faça uma vez o login do Docker no GHCR e clone o repositório:
 
-O guia detalhado de instalação, HestiaCP, atualização, backup e operação está em [`docs/OPERACAO.md`](docs/OPERACAO.md).
+```bash
+echo 'SEU_TOKEN_READ_PACKAGES' | sudo docker login ghcr.io -u SEU_USUARIO --password-stdin
+gh repo clone kakadea/subs
+cd subs
+chmod +x scripts/*.sh
+sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
+```
+
+O arquivo `.env` fica persistido no servidor e não é sobrescrito. O guia detalhado de instalação, HestiaCP, atualização, backup e operação está em [`docs/OPERACAO.md`](docs/OPERACAO.md).
 
 Acesse `https://seu-dominio/` pelo HestiaCP. Para desenvolvimento direto, use `BASE_URL=http://localhost:8081` e `COOKIE_SECURE=false` no `.env`, e abra `http://127.0.0.1:8081`.
 
@@ -46,16 +52,14 @@ A primeira inicialização cria o usuário administrador definido por `ADMIN_EMA
 
 ## Como buildar
 
-O projeto não gera uma ISO: ele gera uma **imagem Docker**. O build de produção é feito pelo script de deploy ou diretamente com `docker compose build --pull app`. O Dockerfile usa build multiestágio e produz um binário Go estático em uma imagem Alpine pequena.
+Você não precisa buildar no servidor. O GitHub Actions constrói e publica a imagem automaticamente. Para atualizar uma instalação existente:
 
 ```bash
-# somente build
-docker compose build --pull app
-
-# build + iniciar/atualizar
 git pull origin main
-./scripts/deploy.sh
+sudo ./scripts/deploy.sh
 ```
+
+O script apenas executa `docker compose pull` e reinicia os serviços.
 
 ## Integração com HestiaCP
 
