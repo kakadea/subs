@@ -19,9 +19,11 @@ fi
 
 COMPOSE=("${DOCKER[@]}" compose --env-file "$ENV_FILE")
 "${COMPOSE[@]}" config --quiet
-"${COMPOSE[@]}" pull
-"${COMPOSE[@]}" up -d --remove-orphans
-"${COMPOSE[@]}" ps
+
+# O código da aplicação é o único artefato reconstruído. Nginx e MariaDB não são tocados.
+"${COMPOSE[@]}" build app
+"${COMPOSE[@]}" up -d --no-deps app
+"${COMPOSE[@]}" ps app
 
 echo
-echo "Deploy concluído. Verifique: ${COMPOSE[*]} logs -f app"
+echo "Atualização do app concluída. Verifique: ${COMPOSE[*]} logs --no-color --since=3m app"

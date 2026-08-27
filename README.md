@@ -28,18 +28,10 @@ Downloads não são transmitidos pelo processo Go. A API valida o acesso e respo
 
 ## Execução local com Docker
 
-Na primeira instalação em um servidor com HestiaCP, o comando recomendado é único: ele cria o `.env`, baixa a imagem pronta do GHCR, sobe o Docker e configura o proxy do domínio no HestiaCP.
+Na primeira instalação em um servidor com HestiaCP, use o checkout que já está no diretório de trabalho. O instalador cria o `.env`, faz o build local do app, sobe a stack e configura o proxy do domínio no HestiaCP:
 
 ```bash
-sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
-```
-
-Antes da primeira execução, faça uma vez o login do Docker no GHCR e clone o repositório:
-
-```bash
-echo 'SEU_TOKEN_READ_PACKAGES' | sudo docker login ghcr.io -u SEU_USUARIO --password-stdin
-gh repo clone kakadea/subs
-cd subs
+cd /opt/subs
 chmod +x scripts/*.sh
 sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
 ```
@@ -52,14 +44,16 @@ A primeira inicialização cria o usuário administrador definido por `ADMIN_EMA
 
 ## Como buildar
 
-Você não precisa buildar no servidor. O GitHub Actions constrói e publica a imagem automaticamente. Para atualizar uma instalação existente:
+O fluxo de atualização é direto no servidor e recompila somente o serviço Go:
 
 ```bash
-git pull origin main
+cd /opt/subs
+sudo git fetch origin main
+sudo git reset --hard origin/main
 sudo ./scripts/deploy.sh
 ```
 
-O script apenas executa `docker compose pull` e reinicia os serviços.
+O script executa `docker compose build app` e `docker compose up -d --no-deps app`. Nginx, MariaDB, volumes e configuração do Hestia não são tocados.
 
 ## Integração com HestiaCP
 

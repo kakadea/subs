@@ -57,8 +57,8 @@ log "instalando templates subs no HestiaCP"
 install -o root -g root -m 0644 deploy/hestia/subs.tpl "$HESTIA_ROOT/data/templates/web/nginx/subs.tpl"
 install -o root -g root -m 0644 deploy/hestia/subs.stpl "$HESTIA_ROOT/data/templates/web/nginx/subs.stpl"
 
-log "baixando a imagem pronta e subindo os containers"
-"${COMPOSE[@]}" pull
+log "construindo o app e subindo a stack inicial"
+"${COMPOSE[@]}" build app
 "${COMPOSE[@]}" up -d --remove-orphans
 
 log "validando serviço local em 127.0.0.1:8081"
