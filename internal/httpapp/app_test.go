@@ -64,6 +64,24 @@ func TestContentType(t *testing.T) {
 	}
 }
 
+func TestAdminRequiresLogin(t *testing.T) {
+	a := New(config.Config{SessionCookieName: "subs_session"}, store.New(nil), slog.Default())
+	for _, path := range []string{"/admin", "/admin/upload", "/admin/projects/new"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		a.Handler().ServeHTTP(resp, req)
+		if resp.Code != http.StatusSeeOther {
+			t.Fatalf("%s status = %d, want %d", path, resp.Code, http.StatusSeeOther)
+		}
+		if location := resp.Header().Get("Location"); !strings.HasPrefix(location, "/login?next=") {
+			t.Fatalf("%s location = %q", path, location)
+		}
+		if got := resp.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("%s cache-control = %q", path, got)
+		}
+	}
+}
+
 func TestServeSubtitle(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "subtitles", "ab", "cd")

@@ -118,6 +118,9 @@ func (a *App) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.myanimelist.net; form-action 'self'; base-uri 'self'; frame-ancestors 'none'")
+		if strings.HasPrefix(r.URL.Path, "/admin") || r.URL.Path == "/login" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		a.log.Info("request", "method", r.Method, "path", r.URL.Path, "status", "completed", "duration_ms", time.Since(start).Milliseconds())
@@ -594,7 +597,7 @@ func (a *App) deleteSubtitle(w http.ResponseWriter, r *http.Request) {
 	}
 	sub, err := a.store.GetSubtitle(r.Context(), r.PathValue("id"), true)
 	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
+		http.Redirect(w, r, "/admin?success="+url.QueryEscape("Legenda já removida ou inexistente."), http.StatusSeeOther)
 		return
 	}
 	if err != nil {
@@ -609,7 +612,7 @@ func (a *App) deleteSubtitle(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.store.DeleteSubtitle(r.Context(), r.PathValue("id")); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			http.NotFound(w, r)
+			http.Redirect(w, r, "/admin?success="+url.QueryEscape("Legenda já removida ou inexistente."), http.StatusSeeOther)
 			return
 		}
 		a.serverError(w, err)
