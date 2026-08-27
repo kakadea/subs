@@ -31,7 +31,9 @@ Downloads não são transmitidos pelo processo Go. A API valida o acesso e respo
 Na primeira instalação em um servidor com HestiaCP, use o checkout que já está no diretório de trabalho. O instalador cria o `.env`, faz o build local do app, sobe a stack e configura o proxy do domínio no HestiaCP:
 
 ```bash
-cd /opt/subs
+sudo mkdir -p /opt/subs
+sudo git clone https://github.com/kakadea/subs.git /opt/subs/src
+cd /opt/subs/src
 chmod +x scripts/*.sh
 sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
 ```
@@ -47,7 +49,7 @@ A primeira inicialização cria o usuário administrador definido por `ADMIN_EMA
 O fluxo de atualização é direto no servidor e recompila somente o serviço Go:
 
 ```bash
-cd /opt/subs
+cd /opt/subs/src
 sudo git fetch origin main
 sudo git reset --hard origin/main
 sudo ./scripts/deploy.sh

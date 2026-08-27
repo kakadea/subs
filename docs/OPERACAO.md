@@ -7,7 +7,9 @@ Este guia ensina como instalar, atualizar e manter a plataforma `subs` no seu se
 No servidor, a instalação inicial parte do checkout que já está no diretório de trabalho. O instalador cria o `.env`, faz o build local da aplicação, sobe a stack, instala o template proxy e configura o domínio no HestiaCP:
 
 ```bash
-cd /opt/subs
+sudo mkdir -p /opt/subs
+sudo git clone https://github.com/kakadea/subs.git /opt/subs/src
+cd /opt/subs/src
 chmod +x scripts/*.sh
 sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
 ```
@@ -21,7 +23,7 @@ Se o checkout ainda não existir, coloque o repositório no diretório de trabal
 O padrão de atualização é o mesmo usado no laboratório: atualize o checkout, faça o build somente do serviço Go e recrie somente esse container. Nginx interno, MariaDB, volumes e configuração do Hestia não são tocados.
 
 ```bash
-cd /opt/subs
+cd /opt/subs/src
 sudo git fetch origin main
 sudo git reset --hard origin/main
 sudo ./scripts/deploy.sh
@@ -30,14 +32,14 @@ sudo ./scripts/deploy.sh
 O script `deploy.sh` executa, na prática:
 
 ```bash
-sudo docker compose --env-file /opt/subs/.env build app
-sudo docker compose --env-file /opt/subs/.env up -d --no-deps app
+sudo docker compose --env-file /opt/subs/src/.env build app
+sudo docker compose --env-file /opt/subs/src/.env up -d --no-deps app
 ```
 
 Para acompanhar o resultado:
 
 ```bash
-sudo docker compose --env-file /opt/subs/.env -f /opt/subs/docker-compose.yml logs --no-color --since=3m app
+sudo docker compose --env-file /opt/subs/src/.env -f /opt/subs/src/docker-compose.yml logs --no-color --since=3m app
 ```
 
 Não há `docker login`, GHCR, PAT ou GitHub CLI nesse ciclo.
@@ -76,7 +78,7 @@ Se quiser conferir no painel, o domínio deve estar com **Proxy Support** ativo.
 
 ---
 
-**Dica de Ouro:** Se você mudar de servidor, prepare um checkout no diretório de trabalho, restaure o `.env` e os volumes Docker e execute o instalador inicial uma vez. Depois, as atualizações seguem apenas por `git fetch/reset`, `build app` e `up -d --no-deps app`.
+**Dica de Ouro:** Se você mudar de servidor, prepare o checkout em `/opt/subs/src`, restaure o `.env` e os volumes Docker e execute o instalador inicial uma vez. Depois, as atualizações seguem apenas por `git fetch/reset`, `build app` e `up -d --no-deps app`.
 
 
 ## Referência oficial usada para automação do HestiaCP
