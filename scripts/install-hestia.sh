@@ -9,6 +9,7 @@ die() { printf '\n[subs] ERRO: %s\n' "$*" >&2; exit 1; }
 
 [[ "${EUID}" -eq 0 ]] || die "execute este instalador como root: sudo ./scripts/install-hestia.sh ..."
 command -v docker >/dev/null 2>&1 || die "Docker não encontrado. Instale Docker antes de continuar."
+docker compose version >/dev/null 2>&1 || die "Docker Compose não encontrado. Instale o plugin docker-compose-plugin antes de continuar."
 command -v curl >/dev/null 2>&1 || die "curl não encontrado. Instale curl antes de continuar."
 HESTIA_ROOT="/usr/local/hestia"
 [[ -x "$HESTIA_ROOT/bin/v-restart-proxy" ]] || die "HestiaCP não encontrado (v-restart-proxy ausente)."
