@@ -8,23 +8,22 @@ Plataforma enxuta para armazenamento, organização e distribuição privada de 
 Internet
    ↓
 HestiaCP / Nginx do host
-   ↓ proxy local para 127.0.0.1:8081
+   ↓ proxy local para 127.0.0.1:18180
 Nginx interno no Docker
-   ├── proxy → Go API :8080
-   └── /protected → storage privado
-                         ↓
-                      MariaDB
+   ↓ proxy
+Go API :8080 ── MariaDB isolado
+   └── valida e transmite downloads autorizados
 ```
 
-O HestiaCP termina TLS e administra o domínio. O Nginx interno faz o proxy da aplicação e entrega arquivos autorizados. A API Go cuida da autenticação, catálogo, uploads, metadados, links temporários e auditoria. O MariaDB guarda somente dados estruturados. O storage nunca é webroot.
+O HestiaCP termina TLS e administra o domínio. O Nginx interno apenas encaminha para a aplicação Go, que valida a legenda e entrega o arquivo com tamanho e suporte a Range corretos. A API cuida da autenticação, catálogo de projetos, coleta de metadados, uploads, links temporários e auditoria. O MariaDB guarda somente dados estruturados, e o storage nunca é webroot.
 
 ## Funcionalidades implementadas
 
-A interface pública permite pesquisar e abrir detalhes das legendas públicas. O painel administrativo permite login, upload de SRT/ASS/SSA/VTT/SUB, preenchimento de metadados, seleção de visibilidade, listagem, remoção lógica e criação de links temporários.
+A interface pública permite pesquisar projetos de anime e abrir cada catálogo com sua capa, nome, quantidade de episódios e todas as legendas disponíveis. No painel administrativo, o operador cria um projeto colando a URL do anime no MyAnimeList; o servidor coleta e persiste nome, capa e episódios. Depois, várias legendas SRT/ASS/SSA/VTT/SUB podem ser adicionadas ao mesmo projeto, com idioma, versão e visibilidade.
 
 Os uploads são limitados por tamanho, validados por extensão e conteúdo textual, gravados em diretórios derivados do SHA-256 e armazenados com nome interno. Sessões usam tokens aleatórios cujo hash é persistido no banco, senhas usam bcrypt, cookies são HttpOnly/SameSite, formulários administrativos usam CSRF e a aplicação envia headers básicos de hardening.
 
-Downloads não são transmitidos pelo processo Go. A API valida o acesso e responde com `X-Accel-Redirect`; o Nginx interno então entrega os bytes a partir do volume privado.
+Downloads passam pelo endpoint autorizado da aplicação, com `Content-Length`, `Content-Disposition`, suporte a Range e `Cache-Control: private, no-store`. O Nginx interno não possui acesso ao volume privado de legendas; somente o container Go lê os arquivos.
 
 ## Execução local com Docker
 

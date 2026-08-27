@@ -96,6 +96,11 @@ if command -v nginx >/dev/null 2>&1; then
   nginx -t
 fi
 
+DOMAIN_CONF_DIR="/home/$HESTIA_USER/conf/web/$DOMAIN"
+if [[ ! -d "$DOMAIN_CONF_DIR" ]] || ! grep -RqsF "proxy_pass http://127.0.0.1:18180" "$DOMAIN_CONF_DIR"; then
+  die "o vhost do Hestia não contém proxy_pass para 127.0.0.1:18180; verifique o template subs e reconstrua o domínio"
+fi
+
 cat <<EOF
 
 [subs] INSTALAÇÃO CONCLUÍDA

@@ -23,27 +23,33 @@ import (
 	"time"
 
 	"github.com/kakadea/subs/internal/config"
+	"github.com/kakadea/subs/internal/mal"
 	"github.com/kakadea/subs/internal/store"
 	"github.com/kakadea/subs/internal/webassets"
 )
 
 type App struct {
-	cfg   config.Config
-	store *store.Store
-	log   *slog.Logger
+	cfg      config.Config
+	store    *store.Store
+	metadata mal.MetadataProvider
+	log      *slog.Logger
 }
 
 type ViewData struct {
-	Title       string
-	User        *store.User
-	CSRF        string
-	Query       string
-	Subtitles   []store.Subtitle
-	Subtitle    *store.Subtitle
-	Error       string
-	Success     string
-	Link        string
-	MaxUploadMB int64
+	Title            string
+	User             *store.User
+	CSRF             string
+	Query            string
+	Subtitles        []store.Subtitle
+	Projects         []store.AnimeProject
+	Project          *store.AnimeProject
+	ProjectSubtitles []store.Subtitle
+	LegacySubtitles  []store.Subtitle
+	Subtitle         *store.Subtitle
+	Error            string
+	Success          string
+	Link             string
+	MaxUploadMB      int64
 }
 
 var allowedExtensions = map[string]bool{
@@ -54,11 +60,18 @@ var allowedExtensions = map[string]bool{
 	".sub": true,
 }
 
-func New(cfg config.Config, st *store.Store, logger *slog.Logger) *App {
+func New(cfg config.Config, st *store.Store, logger *slog.Logger, providers ...mal.MetadataProvider) *App {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &App{cfg: cfg, store: st, log: logger}
+	var metadata mal.MetadataProvider
+	if len(providers) > 0 {
+		metadata = providers[0]
+	}
+	if metadata == nil {
+		metadata = mal.NewClient(nil, "")
+	}
+	return &App{cfg: cfg, store: st, metadata: metadata, log: logger}
 }
 
 func (a *App) Handler() http.Handler {
@@ -76,10 +89,16 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/account/password", a.changePassword)
 	mux.HandleFunc("POST /logout", a.logout)
 	mux.HandleFunc("GET /s/{id}", a.detail)
+	mux.HandleFunc("GET /p/{id}", a.project)
 	mux.HandleFunc("GET /download/{id}", a.download)
 	mux.HandleFunc("GET /l/{token}", a.temporaryDownload)
 	mux.HandleFunc("GET /admin", a.admin)
-	mux.HandleFunc("GET /admin/upload", a.uploadPage)
+	mux.HandleFunc("GET /admin/projects/new", a.newProjectPage)
+	mux.HandleFunc("POST /admin/projects", a.createProject)
+	mux.HandleFunc("GET /admin/projects/{id}", a.adminProject)
+	mux.HandleFunc("GET /admin/projects/{id}/upload", a.uploadPage)
+	mux.HandleFunc("POST /admin/projects/{id}/upload", a.upload)
+	mux.HandleFunc("GET /admin/upload", a.newProjectPage)
 	mux.HandleFunc("POST /admin/upload", a.upload)
 	mux.HandleFunc("POST /admin/subtitles/{id}/delete", a.deleteSubtitle)
 	mux.HandleFunc("POST /admin/subtitles/{id}/link", a.createLink)
@@ -98,7 +117,7 @@ func (a *App) middleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.myanimelist.net; form-action 'self'; base-uri 'self'; frame-ancestors 'none'")
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		a.log.Info("request", "method", r.Method, "path", r.URL.Path, "status", "completed", "duration_ms", time.Since(start).Milliseconds())
@@ -120,15 +139,46 @@ func (a *App) catalog(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	user, logged := a.currentUser(r)
 	var userPtr *store.User
+	includePrivate := false
 	if logged {
 		userPtr = &user
+		includePrivate = user.IsAdmin()
 	}
-	subs, err := a.store.ListSubtitles(r.Context(), query, logged && user.IsAdmin())
+	projects, err := a.store.ListProjects(r.Context(), query, includePrivate)
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "catalog.html", ViewData{Title: "Catálogo", User: userPtr, Query: query, Subtitles: subs})
+	legacy, err := a.store.ListSubtitles(r.Context(), query, includePrivate)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	a.render(w, "catalog.html", ViewData{Title: "Catálogo", User: userPtr, Query: query, Projects: projects, LegacySubtitles: legacy})
+}
+
+func (a *App) project(w http.ResponseWriter, r *http.Request) {
+	user, logged := a.currentUser(r)
+	includePrivate := logged && user.IsAdmin()
+	project, err := a.store.GetProject(r.Context(), r.PathValue("id"), includePrivate)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	subs, err := a.store.ListProjectSubtitles(r.Context(), project.ID, includePrivate)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	var userPtr *store.User
+	if logged {
+		userPtr = &user
+	}
+	a.render(w, "project.html", ViewData{Title: project.Title, User: userPtr, Project: &project, ProjectSubtitles: subs})
 }
 
 func (a *App) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +264,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 		userID = &user.ID
 	}
 	_ = a.store.Audit(r.Context(), userID, "download", &sub.ID, clientIP(r), `{"kind":"public"}`)
-	a.accelRedirect(w, sub)
+	a.accelRedirect(w, r, sub)
 }
 
 func (a *App) temporaryDownload(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +287,7 @@ func (a *App) temporaryDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = a.store.Audit(r.Context(), nil, "download", &sub.ID, clientIP(r), `{"kind":"temporary_link"}`)
-	a.accelRedirect(w, sub)
+	a.accelRedirect(w, r, sub)
 }
 
 func (a *App) admin(w http.ResponseWriter, r *http.Request) {
@@ -246,12 +296,92 @@ func (a *App) admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	subs, err := a.store.ListSubtitles(r.Context(), query, true)
+	projects, err := a.store.ListProjects(r.Context(), query, true)
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "admin.html", ViewData{Title: "Painel", User: &user, CSRF: a.ensureCSRF(w, r), Query: query, Subtitles: subs, Success: r.URL.Query().Get("success"), Link: r.URL.Query().Get("link"), MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+	legacy, err := a.store.ListSubtitles(r.Context(), query, true)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	a.render(w, "admin.html", ViewData{Title: "Painel", User: &user, CSRF: a.ensureCSRF(w, r), Query: query, Projects: projects, LegacySubtitles: legacy, Success: r.URL.Query().Get("success"), Link: r.URL.Query().Get("link")})
+}
+
+func (a *App) newProjectPage(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	a.render(w, "project-new.html", ViewData{Title: "Novo projeto", User: &user, CSRF: a.ensureCSRF(w, r)})
+}
+
+func (a *App) createProject(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		a.render(w, "project-new.html", ViewData{Title: "Novo projeto", User: &user, CSRF: a.ensureCSRF(w, r), Error: "Formulário inválido."})
+		return
+	}
+	if !a.validCSRF(r) {
+		a.render(w, "project-new.html", ViewData{Title: "Novo projeto", User: &user, CSRF: a.ensureCSRF(w, r), Error: "A sessão do formulário expirou. Recarregue a página e tente novamente."})
+		return
+	}
+	malURL := strings.TrimSpace(r.FormValue("mal_url"))
+	malID, err := mal.ParseURL(malURL)
+	if err != nil {
+		a.render(w, "project-new.html", ViewData{Title: "Novo projeto", User: &user, CSRF: a.ensureCSRF(w, r), Error: err.Error()})
+		return
+	}
+	if existing, err := a.store.GetProjectByMALID(r.Context(), malID); err == nil {
+		http.Redirect(w, r, "/admin/projects/"+existing.PublicID, http.StatusSeeOther)
+		return
+	} else if !errors.Is(err, store.ErrNotFound) {
+		a.serverError(w, err)
+		return
+	}
+	metadata, err := a.metadata.FetchAnime(r.Context(), malID)
+	if err != nil {
+		a.render(w, "project-new.html", ViewData{Title: "Novo projeto", User: &user, CSRF: a.ensureCSRF(w, r), Error: "Não foi possível coletar os dados desse anime agora. Confira a URL e tente novamente."})
+		return
+	}
+	publicID, err := randomID()
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	project := store.AnimeProject{PublicID: publicID, MALID: metadata.MALID, MALURL: metadata.MALURL, Title: metadata.Title, ImageURL: metadata.ImageURL, Episodes: metadata.Episodes, CreatedBy: user.ID}
+	if err := a.store.CreateProject(r.Context(), project); err != nil {
+		a.serverError(w, err)
+		return
+	}
+	_ = a.store.Audit(r.Context(), &user.ID, "project_create", nil, clientIP(r), fmt.Sprintf(`{"mal_id":%d}`, project.MALID))
+	http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape("Projeto criado e metadados coletados."), http.StatusSeeOther)
+}
+
+func (a *App) adminProject(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	project, err := a.store.GetProject(r.Context(), r.PathValue("id"), true)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	subs, err := a.store.ListProjectSubtitles(r.Context(), project.ID, true)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	a.render(w, "project-admin.html", ViewData{Title: project.Title, User: &user, Project: &project, ProjectSubtitles: subs, CSRF: a.ensureCSRF(w, r), Success: r.URL.Query().Get("success"), Link: r.URL.Query().Get("link"), MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
 }
 
 func (a *App) accountPage(w http.ResponseWriter, r *http.Request) {
@@ -308,7 +438,16 @@ func (a *App) uploadPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.render(w, "upload.html", ViewData{Title: "Enviar legenda", User: &user, CSRF: a.ensureCSRF(w, r), MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+	project, err := a.store.GetProject(r.Context(), r.PathValue("id"), true)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	a.render(w, "upload.html", ViewData{Title: "Adicionar legenda", User: &user, Project: &project, CSRF: a.ensureCSRF(w, r), MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
 }
 
 func (a *App) upload(w http.ResponseWriter, r *http.Request) {
@@ -316,33 +455,47 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	projectID := r.PathValue("id")
+	if projectID == "" {
+		http.Redirect(w, r, "/admin/projects/new", http.StatusSeeOther)
+		return
+	}
+	project, err := a.store.GetProject(r.Context(), projectID, true)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxUploadBytes+1024*1024)
 	if err := r.ParseMultipartForm(a.cfg.MaxUploadBytes + 1024*1024); err != nil {
-		a.render(w, "upload.html", ViewData{Title: "Enviar legenda", User: &user, Error: "O upload excede o limite permitido ou é inválido.", MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+		a.uploadError(w, r, user, &project, "O upload excede o limite permitido ou é inválido.")
 		return
 	}
 	if !a.validCSRF(r) {
-		a.uploadError(w, user, "A sessão do formulário expirou. Recarregue a página e tente novamente.")
+		a.uploadError(w, r, user, &project, "A sessão do formulário expirou. Recarregue a página e tente novamente.")
 		return
 	}
 	file, header, err := r.FormFile("subtitle")
 	if err != nil {
-		a.render(w, "upload.html", ViewData{Title: "Enviar legenda", User: &user, Error: "Selecione um arquivo de legenda.", MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+		a.uploadError(w, r, user, &project, "Selecione um arquivo de legenda.")
 		return
 	}
 	defer file.Close()
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if !allowedExtensions[ext] {
-		a.uploadError(w, user, "Extensão não permitida. Use SRT, ASS, SSA, VTT ou SUB.")
+		a.uploadError(w, r, user, &project, "Extensão não permitida. Use SRT, ASS, SSA, VTT ou SUB.")
 		return
 	}
 	if header.Size <= 0 || header.Size > a.cfg.MaxUploadBytes {
-		a.uploadError(w, user, "O arquivo está vazio ou ultrapassa o limite configurado.")
+		a.uploadError(w, r, user, &project, "O arquivo está vazio ou ultrapassa o limite configurado.")
 		return
 	}
 	if err := validateSubtitleContent(file); err != nil {
-		a.uploadError(w, user, "O arquivo não parece ser uma legenda de texto válida.")
+		a.uploadError(w, r, user, &project, "O arquivo não parece ser uma legenda de texto válida.")
 		return
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
@@ -375,7 +528,7 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if written <= 0 || written > a.cfg.MaxUploadBytes {
-		a.uploadError(w, user, "O arquivo ultrapassa o limite configurado.")
+		a.uploadError(w, r, user, &project, "O arquivo ultrapassa o limite configurado.")
 		return
 	}
 	checksum := hex.EncodeToString(hasher.Sum(nil))
@@ -388,7 +541,7 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	// Hard-linking is atomic and fails safely when the same checksum is uploaded concurrently.
 	if err := os.Link(tmpName, finalPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			a.uploadError(w, user, "Este arquivo já foi enviado anteriormente.")
+			a.uploadError(w, r, user, &project, "Este arquivo já foi enviado anteriormente.")
 			return
 		}
 		a.serverError(w, err)
@@ -405,15 +558,11 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("visibility") == "private" {
 		visibility = "private"
 	}
-	title := strings.TrimSpace(r.FormValue("title"))
-	if title == "" {
-		title = strings.TrimSuffix(filepath.Base(header.Filename), ext)
-	}
+	projectIDValue := project.ID
 	sub := store.Subtitle{
+		ProjectID:        &projectIDValue,
 		PublicID:         publicID,
-		Title:            limitString(title, 255),
-		Episode:          limitString(strings.TrimSpace(r.FormValue("episode")), 64),
-		Season:           limitString(strings.TrimSpace(r.FormValue("season")), 64),
+		Title:            project.Title,
 		Language:         limitString(defaultString(r.FormValue("language"), "Português"), 64),
 		Format:           strings.TrimPrefix(ext, "."),
 		OriginalFilename: limitString(filepath.Base(header.Filename), 255),
@@ -430,8 +579,8 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	_ = a.store.Audit(r.Context(), &user.ID, "upload", &sub.ID, clientIP(r), `{"filename":"stored"}`)
-	http.Redirect(w, r, "/admin?success="+url.QueryEscape("Legenda enviada com sucesso."), http.StatusSeeOther)
+	_ = a.store.Audit(r.Context(), &user.ID, "upload", &sub.ID, clientIP(r), `{"filename":"stored","project_id":`+fmt.Sprint(project.ID)+`}`)
+	http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape("Legenda adicionada ao projeto."), http.StatusSeeOther)
 }
 
 func (a *App) deleteSubtitle(w http.ResponseWriter, r *http.Request) {
@@ -443,6 +592,21 @@ func (a *App) deleteSubtitle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid csrf token", http.StatusForbidden)
 		return
 	}
+	sub, err := a.store.GetSubtitle(r.Context(), r.PathValue("id"), true)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	projectPublicID := ""
+	if sub.ProjectID != nil {
+		if project, err := a.store.GetProjectByID(r.Context(), *sub.ProjectID); err == nil {
+			projectPublicID = project.PublicID
+		}
+	}
 	if err := a.store.DeleteSubtitle(r.Context(), r.PathValue("id")); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			http.NotFound(w, r)
@@ -451,8 +615,12 @@ func (a *App) deleteSubtitle(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	_ = a.store.Audit(r.Context(), &user.ID, "delete", nil, clientIP(r), "")
-	http.Redirect(w, r, "/admin?success="+url.QueryEscape("Legenda removida."), http.StatusSeeOther)
+	_ = a.store.Audit(r.Context(), &user.ID, "delete", &sub.ID, clientIP(r), "")
+	redirect := "/admin?success=" + url.QueryEscape("Legenda removida.")
+	if projectPublicID != "" {
+		redirect = "/admin/projects/" + projectPublicID + "?success=" + url.QueryEscape("Legenda removida.")
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
 }
 
 func (a *App) createLink(w http.ResponseWriter, r *http.Request) {
@@ -479,14 +647,43 @@ func (a *App) createLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	link := a.cfg.BaseURL + "/l/" + token
-	http.Redirect(w, r, "/admin?link="+url.QueryEscape(link), http.StatusSeeOther)
+	redirect := "/admin?link=" + url.QueryEscape(link)
+	if sub.ProjectID != nil {
+		if project, err := a.store.GetProjectByID(r.Context(), *sub.ProjectID); err == nil {
+			redirect = "/admin/projects/" + project.PublicID + "?link=" + url.QueryEscape(link)
+		}
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
 }
 
-func (a *App) accelRedirect(w http.ResponseWriter, sub store.Subtitle) {
+func (a *App) accelRedirect(w http.ResponseWriter, r *http.Request, sub store.Subtitle) {
+	storageRoot := filepath.Clean(a.cfg.StorageRoot)
+	relativePath := filepath.Clean(filepath.FromSlash(sub.StoragePath))
+	filePath := filepath.Join(storageRoot, relativePath)
+	prefix := storageRoot + string(os.PathSeparator)
+	if filePath == storageRoot || !strings.HasPrefix(filePath, prefix) {
+		a.serverError(w, fmt.Errorf("invalid storage path"))
+		return
+	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
+		a.serverError(w, err)
+		return
+	}
+	defer file.Close()
+	stat, err := file.Stat()
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
 	w.Header().Set("Content-Type", contentType(sub.Format))
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": sub.OriginalFilename}))
-	w.Header().Set("X-Accel-Redirect", "/protected/"+strings.TrimPrefix(filepath.ToSlash(sub.StoragePath), "/"))
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.ServeContent(w, r, sub.OriginalFilename, stat.ModTime(), file)
 }
 
 func (a *App) currentUser(r *http.Request) (store.User, bool) {
@@ -523,8 +720,8 @@ func (a *App) render(w http.ResponseWriter, name string, data ViewData) {
 	}
 }
 
-func (a *App) uploadError(w http.ResponseWriter, user store.User, message string) {
-	a.render(w, "upload.html", ViewData{Title: "Enviar legenda", User: &user, Error: message, MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+func (a *App) uploadError(w http.ResponseWriter, r *http.Request, user store.User, project *store.AnimeProject, message string) {
+	a.render(w, "upload.html", ViewData{Title: "Adicionar legenda", User: &user, Project: project, CSRF: a.ensureCSRF(w, r), Error: message, MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
 }
 
 func (a *App) ensureCSRF(w http.ResponseWriter, r *http.Request) string {

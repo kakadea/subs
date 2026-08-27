@@ -1,85 +1,77 @@
 # Integração com HestiaCP
 
-O HestiaCP deve permanecer responsável pelo domínio, certificado TLS e proxy reverso público. A aplicação não deve abrir uma porta pública própria.
+O HestiaCP permanece responsável pelo domínio, certificado TLS e proxy reverso público. A aplicação `subs` roda localmente em Docker e não abre porta pública própria.
 
-## Instalação automática recomendada
+## Instalação recomendada
 
-Na raiz do repositório, depois de autenticar o Docker no GHCR:
-
-```bash
-sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
-```
-
-O instalador é idempotente. Ele instala os templates `subs.tpl`/`subs.stpl`, baixa a imagem pronta, sobe o Compose em `127.0.0.1:8081`, detecta se o domínio já possui proxy e usa `v-add-web-domain-proxy` ou `v-change-web-domain-proxy-tpl` conforme necessário. O Hestia permanece na frente e continua gerenciando TLS.
-
-## Instalação manual (se necessário)
-
-### 1. Subir o Compose
-
-Na máquina que hospeda o HestiaCP:
+No checkout já existente no servidor, execute como root:
 
 ```bash
-cp .env.example .env
-# edite .env e defina segredos fortes
-chmod 600 .env
-docker compose up -d --build
+cd /opt/subs/src
+chmod +x scripts/*.sh
+sudo ./scripts/install-hestia.sh subtitle.oldagesubs.com.br cloud
 ```
 
-O Compose publica somente `127.0.0.1:8081` para o Nginx interno. A API Go e o MariaDB ficam somente na rede Docker.
+O instalador cria/instala os templates persistentes `subs.tpl` e `subs.stpl`, sobe MariaDB, constrói a imagem Go localmente, inicia o app e o Nginx interno e configura o domínio do usuário Hestia informado. Não há login de registry, GHCR, PAT, chave SSH ou GitHub CLI necessários no ciclo normal.
 
-### 2. Proxy no domínio do Hestia
+A topologia é:
 
-Crie um template Nginx customizado do Hestia, em vez de editar o template padrão. O Hestia pode reconstruir os arquivos do domínio durante atualizações ou rebuilds.
-
-O bloco de proxy conceitual é:
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:8081;
-    proxy_http_version 1.1;
-    proxy_buffering off;
-    proxy_request_buffering off;
-    proxy_connect_timeout 5s;
-    proxy_send_timeout 300s;
-    proxy_read_timeout 300s;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-Host $host;
-}
+```text
+Internet / Cloudflare
+        ↓ HTTPS
+HestiaCP Nginx do host
+        ↓ http://127.0.0.1:18180
+Nginx interno Docker
+        ↓ http://app:8080
+Go app ─── MariaDB somente na rede Docker
 ```
 
-Ajuste o template `.tpl` e `.stpl` conforme o modo HTTP e HTTPS do domínio. Ative-o no domínio e reconstrua a configuração pelo painel ou por `v-rebuild-user`.
+O binding `127.0.0.1:18180` é local ao servidor. O Nginx interno encaminha para o app e mantém o volume privado montado somente como leitura para a guarda interna de compatibilidade; a entrega atual é validada e transmitida pelo próprio app.
 
-### 3. Storage e X-Accel-Redirect
+## Atualização normal
 
-O Nginx do Hestia não deve receber o volume privado. O Nginx interno do Compose possui o volume como leitura e entrega o arquivo somente depois que a API Go autoriza a requisição.
-
-A location interna está definida em `deploy/nginx/default.conf`:
-
-```nginx
-location /protected/ {
-    internal;
-    alias /data/;
-    autoindex off;
-}
-```
-
-Uma requisição pública direta para `/protected/` deve retornar 404. O fluxo válido é `/download/{id}` ou `/l/{token}`; a API então responde com `X-Accel-Redirect`.
-
-### 4. Verificação
+Depois que o código for publicado no repositório público, a atualização seletiva é:
 
 ```bash
-curl -fsS https://subs.example.com/healthz
-curl -i https://subs.example.com/protected/subtitles/test
-ss -ltnp | grep 8081
+cd /opt/subs/src
+sudo git fetch origin main
+sudo git reset --hard origin/main
+sudo ./scripts/deploy.sh
 ```
 
-O healthcheck deve responder `{"status":"ok"}`. O path protegido deve ser inacessível diretamente. A porta 8081 deve estar ligada apenas a `127.0.0.1`.
+O script executa somente `docker compose build app` e `docker compose up -d --no-deps app`. MariaDB, volume de dados, Nginx interno e configuração do Hestia não são recriados.
 
-### Observações
+## Proxy persistente
 
-O Hestia deve terminar TLS e encaminhar o header `X-Forwarded-Proto`. O cookie seguro pode permanecer habilitado porque o navegador acessa o domínio por HTTPS, mesmo que o proxy entre Hestia e Docker use HTTP local.
+Os templates ficam em `/usr/local/hestia/data/templates/web/nginx/` e usam `proxy_pass http://127.0.0.1:18180`. Não edite diretamente os arquivos de vhost gerados em `/home/cloud/conf/web/`; o Hestia pode reconstruí-los. Se o domínio mostrar a página `We're working on it!`, o template efetivo ainda não é `subs` ou o vhost não foi reconstruído. Verifique:
 
-Não abra portas 3306, 8080 ou a porta do Nginx interno para `0.0.0.0`. Não coloque o diretório `storage` em `public_html`.
+```bash
+sudo /usr/local/hestia/bin/v-list-web-domain cloud subtitle.oldagesubs.com.br json
+sudo grep -R "proxy_pass http://127.0.0.1:18180" /home/cloud/conf/web/subtitle.oldagesubs.com.br /etc/nginx 2>/dev/null
+sudo nginx -t
+```
+
+Se o primeiro comando confirmar o domínio e o `grep` não encontrar o upstream, reaplique somente o template do domínio:
+
+```bash
+sudo /usr/local/hestia/bin/v-change-web-domain-proxy-tpl cloud subtitle.oldagesubs.com.br subs "jpg,jpeg,gif,png,webp,ico,svg,css,js,zip,tgz,gz,rar,bz2,doc,xls,exe,pdf,ppt,txt,odt,ods,odp,odf,tar,wav,bmp,rtf,mp3,avi,mpeg,flv,html,htm,srt,ass,ssa,vtt,sub" yes && sudo /usr/local/hestia/bin/v-restart-proxy yes
+```
+
+Depois, valide o proxy e a origem:
+
+```bash
+curl -i --max-time 10 http://127.0.0.1:18180/healthz
+curl -skI --max-time 15 "https://subtitle.oldagesubs.com.br/healthz?check=$(date +%s)"
+```
+
+A primeira resposta deve vir do Nginx interno com `200` e `{"status":"ok"}`. A segunda deve mostrar a aplicação, não a página padrão do Hestia. Enquanto o primeiro teste local não responder, não adianta limpar cache da Cloudflare.
+
+## Downloads
+
+Os endpoints públicos são `/download/{id}` para a legenda pública e `/l/{token}` para links temporários gerados pelo painel. O app responde com `Content-Length`, `Content-Disposition`, suporte a Range e `Cache-Control: private, no-store`. Não existe mais dependência operacional do caminho `/protected/` ou de `X-Accel-Redirect`.
+
+## Segurança
+
+O arquivo `/opt/subs/src/.env` deve ficar fora do `public_html`, com proprietário `root:root` e permissão `600`. O checkout não é servido pelo vhost e o `.env` não é copiado para a imagem. Usuários com acesso root ou controle administrativo do Docker no host continuam capazes de acessar os segredos, como em qualquer aplicação hospedada nesse servidor.
+
+Não abra as portas 3306, 8080 ou 18180 para `0.0.0.0`. Não use `docker compose down -v`, `docker system prune -a` ou `docker volume prune` no VPS compartilhado.

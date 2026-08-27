@@ -25,7 +25,7 @@ func TestMariaDBIntegration(t *testing.T) {
 	if err := db.PingContext(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"audit_logs", "download_links", "subtitles", "sessions", "users"} {
+	for _, table := range []string{"audit_logs", "download_links", "subtitles", "anime_projects", "sessions", "users"} {
 		if _, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
 			t.Fatal(err)
 		}
@@ -48,6 +48,14 @@ func TestMariaDBIntegration(t *testing.T) {
 	if _, err := st.GetSessionUser(ctx, session); err != nil {
 		t.Fatal(err)
 	}
+	project := AnimeProject{PublicID: "fedcba9876543210fedcba9876543210", MALID: 2076, MALURL: "https://myanimelist.net/anime/2076/Kindaichi_Shounen_no_Jikenbo", Title: "Kindaichi Shounen no Jikenbo", ImageURL: "https://cdn.myanimelist.net/images/anime/1702/120440l.jpg", Episodes: 148, CreatedBy: admin.ID}
+	if err := st.CreateProject(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	project, err = st.GetProjectByMALID(ctx, 2076)
+	if err != nil || project.Title != "Kindaichi Shounen no Jikenbo" {
+		t.Fatalf("get project: project=%+v err=%v", project, err)
+	}
 	newPassword := "Nova#senha = segura$2026"
 	if err := st.SetAdminPassword(ctx, "admin@test.local", newPassword); err != nil {
 		t.Fatal(err)
@@ -61,13 +69,18 @@ func TestMariaDBIntegration(t *testing.T) {
 	if _, err := st.GetSessionUser(ctx, session); err != ErrNotFound {
 		t.Fatalf("old session should be invalidated, got %v", err)
 	}
-	sub := Subtitle{PublicID: "0123456789abcdef0123456789abcdef", Title: "Test", Format: "srt", OriginalFilename: "test.srt", StorageName: "0123456789012345678901234567890123456789012345678901234567890123.srt", StoragePath: "subtitles/01/23/file.srt", FileSize: 42, Checksum: "0123456789012345678901234567890123456789012345678901234567890123", Version: "1.0", Visibility: "public", CreatedBy: admin.ID}
+	projectID := project.ID
+	sub := Subtitle{ProjectID: &projectID, PublicID: "0123456789abcdef0123456789abcdef", Title: project.Title, Format: "srt", OriginalFilename: "test.srt", StorageName: "0123456789012345678901234567890123456789012345678901234567890123.srt", StoragePath: "subtitles/01/23/file.srt", FileSize: 42, Checksum: "0123456789012345678901234567890123456789012345678901234567890123", Version: "1.0", Visibility: "public", CreatedBy: admin.ID}
 	if err := st.CreateSubtitle(ctx, sub); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.GetSubtitle(ctx, sub.PublicID, false)
-	if err != nil || got.Title != sub.Title {
+	if err != nil || got.Title != sub.Title || got.ProjectID == nil || *got.ProjectID != project.ID {
 		t.Fatalf("get subtitle: got=%+v err=%v", got, err)
+	}
+	projectSubs, err := st.ListProjectSubtitles(ctx, project.ID, false)
+	if err != nil || len(projectSubs) != 1 {
+		t.Fatalf("list project subtitles: got=%+v err=%v", projectSubs, err)
 	}
 	link, err := st.CreateDownloadLink(ctx, got.ID, admin.ID, time.Now().Add(time.Hour))
 	if err != nil {

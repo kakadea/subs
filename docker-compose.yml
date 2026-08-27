@@ -16,6 +16,7 @@ services:
       SESSION_TTL_HOURS: "${SESSION_TTL_HOURS:-168}"
       DOWNLOAD_LINK_TTL_HOURS: "${DOWNLOAD_LINK_TTL_HOURS:-24}"
       SESSION_SECRET: "${SESSION_SECRET:?set SESSION_SECRET}"
+      METADATA_API_BASE_URL: "${METADATA_API_BASE_URL:-https://api.tenrai.org/v1}"
       # Usados apenas no primeiro bootstrap, quando ainda não existe admin.
       # Podem ser removidos do .env depois que o primeiro administrador for criado.
       ADMIN_EMAIL: "${ADMIN_EMAIL:-}"

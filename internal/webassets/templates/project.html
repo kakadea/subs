@@ -1,0 +1,31 @@
+{{define "content"}}
+{{with .Project}}
+<section class="project-hero">
+  <a class="back-link" href="/">← Voltar ao catálogo</a>
+  <div class="project-hero-layout">
+    <div class="project-hero-cover">
+      {{if .ImageURL}}<img src="{{.ImageURL}}" alt="Capa de {{.Title}}">{{else}}<span class="cover-placeholder large">S</span>{{end}}
+    </div>
+    <div class="project-hero-copy">
+      <div class="eyebrow">Projeto de anime · MAL #{{.MALID}}</div>
+      <h1>{{.Title}}</h1>
+      <p class="detail-subtitle">{{if .Episodes}}{{.Episodes}} episódios{{else}}Número de episódios não informado{{end}} · {{$.Project.SubtitleCount}} legendas disponíveis</p>
+      <a class="source-link" href="{{.MALURL}}" target="_blank" rel="noopener noreferrer">Abrir página no MyAnimeList ↗</a>
+    </div>
+  </div>
+</section>
+<section class="section-head"><div><div class="eyebrow">Arquivos do projeto</div><h2>Legendas disponíveis</h2></div><span class="result-count">{{len $.ProjectSubtitles}} arquivos</span></section>
+{{if $.ProjectSubtitles}}
+<div class="subtitle-list">
+  {{range $.ProjectSubtitles}}
+  <article class="subtitle-row">
+    <div><strong>{{.OriginalFilename}}</strong><span class="table-sub">{{.Language}} · versão {{.Version}} · {{bytes .FileSize}}</span></div>
+    <a class="primary-button compact-button" href="/download/{{.PublicID}}">Baixar <span>↓</span></a>
+  </article>
+  {{end}}
+</div>
+{{else}}
+<div class="empty-state compact"><div class="empty-icon">＋</div><h3>Ainda não há legendas</h3><p>Este projeto já está cadastrado e poderá receber arquivos assim que forem enviados.</p></div>
+{{end}}
+{{end}}
+{{end}}

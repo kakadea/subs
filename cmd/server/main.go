@@ -18,6 +18,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/kakadea/subs/internal/config"
 	"github.com/kakadea/subs/internal/httpapp"
+	"github.com/kakadea/subs/internal/mal"
 	"github.com/kakadea/subs/internal/store"
 )
 
@@ -57,7 +58,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := httpapp.New(cfg, st, logger)
+	app := httpapp.New(cfg, st, logger, mal.NewClient(nil, os.Getenv("METADATA_API_BASE_URL")))
 	server := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           app.Handler(),

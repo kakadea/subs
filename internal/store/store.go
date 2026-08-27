@@ -25,6 +25,22 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS anime_projects (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    public_id CHAR(32) NOT NULL UNIQUE,
+    mal_id INT UNSIGNED NOT NULL UNIQUE,
+    mal_url VARCHAR(512) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    image_url VARCHAR(512) NOT NULL DEFAULT '',
+    episodes INT UNSIGNED NOT NULL DEFAULT 0,
+    created_by BIGINT UNSIGNED NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_projects_user FOREIGN KEY (created_by) REFERENCES users(id),
+    INDEX idx_projects_title (title),
+    INDEX idx_projects_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash CHAR(64) NOT NULL PRIMARY KEY,
     user_id BIGINT UNSIGNED NOT NULL,
@@ -36,6 +52,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS subtitles (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id BIGINT UNSIGNED NULL,
     public_id CHAR(32) NOT NULL UNIQUE,
     title VARCHAR(255) NOT NULL,
     episode VARCHAR(64) NOT NULL DEFAULT '',
@@ -54,7 +71,9 @@ CREATE TABLE IF NOT EXISTS subtitles (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at DATETIME NULL,
     CONSTRAINT fk_subtitles_user FOREIGN KEY (created_by) REFERENCES users(id),
+    CONSTRAINT fk_subtitles_project FOREIGN KEY (project_id) REFERENCES anime_projects(id) ON DELETE SET NULL,
     INDEX idx_subtitles_search (title, episode, language),
+    INDEX idx_subtitles_project (project_id),
     INDEX idx_subtitles_public (public_id, visibility, deleted_at),
     INDEX idx_subtitles_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -94,8 +113,23 @@ type User struct {
 
 func (u User) IsAdmin() bool { return u.Role == "admin" }
 
+type AnimeProject struct {
+	ID            uint64
+	PublicID      string
+	MALID         int
+	MALURL        string
+	Title         string
+	ImageURL      string
+	Episodes      int
+	SubtitleCount int
+	CreatedBy     uint64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type Subtitle struct {
 	ID               uint64
+	ProjectID        *uint64
 	PublicID         string
 	Title            string
 	Episode          string
@@ -130,6 +164,15 @@ func (s *Store) Migrate(ctx context.Context) error {
 		}
 		if _, err := s.DB.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("schema migration: %w", err)
+		}
+	}
+	var projectColumn int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'subtitles' AND COLUMN_NAME = 'project_id'`).Scan(&projectColumn); err != nil {
+		return fmt.Errorf("check project migration: %w", err)
+	}
+	if projectColumn == 0 {
+		if _, err := s.DB.ExecContext(ctx, `ALTER TABLE subtitles ADD COLUMN project_id BIGINT UNSIGNED NULL AFTER id, ADD INDEX idx_subtitles_project (project_id), ADD CONSTRAINT fk_subtitles_project FOREIGN KEY (project_id) REFERENCES anime_projects(id) ON DELETE SET NULL`); err != nil {
+			return fmt.Errorf("add project relation: %w", err)
 		}
 	}
 	return nil
@@ -242,8 +285,89 @@ func (s *Store) DeleteSession(ctx context.Context, token string) error {
 	return err
 }
 
+const subtitleColumns = `id, project_id, public_id, title, episode, season, language, format, original_filename, storage_name, storage_path, file_size, checksum, version, visibility, created_by, created_at, updated_at`
+
+func (s *Store) CreateProject(ctx context.Context, project AnimeProject) error {
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO anime_projects (public_id, mal_id, mal_url, title, image_url, episodes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`, project.PublicID, project.MALID, project.MALURL, project.Title, project.ImageURL, project.Episodes, project.CreatedBy)
+	return err
+}
+
+func (s *Store) GetProjectByMALID(ctx context.Context, malID int) (AnimeProject, error) {
+	var project AnimeProject
+	err := s.DB.QueryRowContext(ctx, `SELECT id, public_id, mal_id, mal_url, title, image_url, episodes, created_by, created_at, updated_at FROM anime_projects WHERE mal_id = ?`, malID).Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AnimeProject{}, ErrNotFound
+	}
+	return project, err
+}
+
+func (s *Store) ListProjects(ctx context.Context, query string, includePrivate bool) ([]AnimeProject, error) {
+	pattern := "%" + strings.ReplaceAll(strings.TrimSpace(query), "%", "\\%") + "%"
+	visibility := "AND s.visibility = 'public'"
+	if includePrivate {
+		visibility = ""
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT p.id, p.public_id, p.mal_id, p.mal_url, p.title, p.image_url, p.episodes, p.created_by, p.created_at, p.updated_at, COUNT(s.id) FROM anime_projects p LEFT JOIN subtitles s ON s.project_id = p.id AND s.deleted_at IS NULL `+visibility+` WHERE (p.title LIKE ? OR p.mal_url LIKE ?) `+` GROUP BY p.id ORDER BY p.updated_at DESC, p.created_at DESC LIMIT 200`, pattern, pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []AnimeProject
+	for rows.Next() {
+		var project AnimeProject
+		if err := rows.Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt, &project.SubtitleCount); err != nil {
+			return nil, err
+		}
+		result = append(result, project)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) GetProjectByID(ctx context.Context, id uint64) (AnimeProject, error) {
+	var project AnimeProject
+	err := s.DB.QueryRowContext(ctx, `SELECT id, public_id, mal_id, mal_url, title, image_url, episodes, created_by, created_at, updated_at FROM anime_projects WHERE id = ?`, id).Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AnimeProject{}, ErrNotFound
+	}
+	return project, err
+}
+
+func (s *Store) GetProject(ctx context.Context, publicID string, includePrivate bool) (AnimeProject, error) {
+	visibility := "AND s.visibility = 'public'"
+	if includePrivate {
+		visibility = ""
+	}
+	var project AnimeProject
+	err := s.DB.QueryRowContext(ctx, `SELECT p.id, p.public_id, p.mal_id, p.mal_url, p.title, p.image_url, p.episodes, p.created_by, p.created_at, p.updated_at, COUNT(s.id) FROM anime_projects p LEFT JOIN subtitles s ON s.project_id = p.id AND s.deleted_at IS NULL `+visibility+` WHERE p.public_id = ? GROUP BY p.id`, publicID).Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt, &project.SubtitleCount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AnimeProject{}, ErrNotFound
+	}
+	return project, err
+}
+
+func (s *Store) ListProjectSubtitles(ctx context.Context, projectID uint64, includePrivate bool) ([]Subtitle, error) {
+	visibility := "AND visibility = 'public'"
+	if includePrivate {
+		visibility = ""
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+subtitleColumns+` FROM subtitles WHERE project_id = ? AND deleted_at IS NULL `+visibility+` ORDER BY CASE WHEN episode = '' THEN 1 ELSE 0 END, CAST(episode AS UNSIGNED), created_at DESC`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []Subtitle
+	for rows.Next() {
+		var sub Subtitle
+		if err := rows.Scan(&sub.ID, &sub.ProjectID, &sub.PublicID, &sub.Title, &sub.Episode, &sub.Season, &sub.Language, &sub.Format, &sub.OriginalFilename, &sub.StorageName, &sub.StoragePath, &sub.FileSize, &sub.Checksum, &sub.Version, &sub.Visibility, &sub.CreatedBy, &sub.CreatedAt, &sub.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, sub)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) CreateSubtitle(ctx context.Context, sub Subtitle) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO subtitles (public_id, title, episode, season, language, format, original_filename, storage_name, storage_path, file_size, checksum, version, visibility, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, sub.PublicID, sub.Title, sub.Episode, sub.Season, sub.Language, sub.Format, sub.OriginalFilename, sub.StorageName, sub.StoragePath, sub.FileSize, sub.Checksum, sub.Version, sub.Visibility, sub.CreatedBy)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO subtitles (project_id, public_id, title, episode, season, language, format, original_filename, storage_name, storage_path, file_size, checksum, version, visibility, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, sub.ProjectID, sub.PublicID, sub.Title, sub.Episode, sub.Season, sub.Language, sub.Format, sub.OriginalFilename, sub.StorageName, sub.StoragePath, sub.FileSize, sub.Checksum, sub.Version, sub.Visibility, sub.CreatedBy)
 	return err
 }
 
@@ -253,7 +377,7 @@ func (s *Store) ListSubtitles(ctx context.Context, query string, includePrivate 
 	if includePrivate {
 		visibility = ""
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id, public_id, title, episode, season, language, format, original_filename, storage_name, storage_path, file_size, checksum, version, visibility, created_by, created_at, updated_at FROM subtitles WHERE deleted_at IS NULL `+visibility+` AND (title LIKE ? OR episode LIKE ? OR language LIKE ?) ORDER BY created_at DESC LIMIT 200`, pattern, pattern, pattern)
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+subtitleColumns+` FROM subtitles WHERE project_id IS NULL AND deleted_at IS NULL `+visibility+` AND (title LIKE ? OR episode LIKE ? OR language LIKE ?) ORDER BY created_at DESC LIMIT 200`, pattern, pattern, pattern)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +385,7 @@ func (s *Store) ListSubtitles(ctx context.Context, query string, includePrivate 
 	var result []Subtitle
 	for rows.Next() {
 		var sub Subtitle
-		if err := rows.Scan(&sub.ID, &sub.PublicID, &sub.Title, &sub.Episode, &sub.Season, &sub.Language, &sub.Format, &sub.OriginalFilename, &sub.StorageName, &sub.StoragePath, &sub.FileSize, &sub.Checksum, &sub.Version, &sub.Visibility, &sub.CreatedBy, &sub.CreatedAt, &sub.UpdatedAt); err != nil {
+		if err := rows.Scan(&sub.ID, &sub.ProjectID, &sub.PublicID, &sub.Title, &sub.Episode, &sub.Season, &sub.Language, &sub.Format, &sub.OriginalFilename, &sub.StorageName, &sub.StoragePath, &sub.FileSize, &sub.Checksum, &sub.Version, &sub.Visibility, &sub.CreatedBy, &sub.CreatedAt, &sub.UpdatedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, sub)
@@ -275,7 +399,7 @@ func (s *Store) GetSubtitle(ctx context.Context, publicID string, includePrivate
 		visibility = ""
 	}
 	var sub Subtitle
-	err := s.DB.QueryRowContext(ctx, `SELECT id, public_id, title, episode, season, language, format, original_filename, storage_name, storage_path, file_size, checksum, version, visibility, created_by, created_at, updated_at FROM subtitles WHERE public_id = ? AND deleted_at IS NULL `+visibility, publicID).Scan(&sub.ID, &sub.PublicID, &sub.Title, &sub.Episode, &sub.Season, &sub.Language, &sub.Format, &sub.OriginalFilename, &sub.StorageName, &sub.StoragePath, &sub.FileSize, &sub.Checksum, &sub.Version, &sub.Visibility, &sub.CreatedBy, &sub.CreatedAt, &sub.UpdatedAt)
+	err := s.DB.QueryRowContext(ctx, `SELECT `+subtitleColumns+` FROM subtitles WHERE public_id = ? AND deleted_at IS NULL `+visibility, publicID).Scan(&sub.ID, &sub.ProjectID, &sub.PublicID, &sub.Title, &sub.Episode, &sub.Season, &sub.Language, &sub.Format, &sub.OriginalFilename, &sub.StorageName, &sub.StoragePath, &sub.FileSize, &sub.Checksum, &sub.Version, &sub.Visibility, &sub.CreatedBy, &sub.CreatedAt, &sub.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Subtitle{}, ErrNotFound
 	}
@@ -284,7 +408,7 @@ func (s *Store) GetSubtitle(ctx context.Context, publicID string, includePrivate
 
 func (s *Store) GetSubtitleByID(ctx context.Context, id uint64) (Subtitle, error) {
 	var sub Subtitle
-	err := s.DB.QueryRowContext(ctx, `SELECT id, public_id, title, episode, season, language, format, original_filename, storage_name, storage_path, file_size, checksum, version, visibility, created_by, created_at, updated_at FROM subtitles WHERE id = ? AND deleted_at IS NULL`, id).Scan(&sub.ID, &sub.PublicID, &sub.Title, &sub.Episode, &sub.Season, &sub.Language, &sub.Format, &sub.OriginalFilename, &sub.StorageName, &sub.StoragePath, &sub.FileSize, &sub.Checksum, &sub.Version, &sub.Visibility, &sub.CreatedBy, &sub.CreatedAt, &sub.UpdatedAt)
+	err := s.DB.QueryRowContext(ctx, `SELECT `+subtitleColumns+` FROM subtitles WHERE id = ? AND deleted_at IS NULL`, id).Scan(&sub.ID, &sub.ProjectID, &sub.PublicID, &sub.Title, &sub.Episode, &sub.Season, &sub.Language, &sub.Format, &sub.OriginalFilename, &sub.StorageName, &sub.StoragePath, &sub.FileSize, &sub.Checksum, &sub.Version, &sub.Visibility, &sub.CreatedBy, &sub.CreatedAt, &sub.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Subtitle{}, ErrNotFound
 	}

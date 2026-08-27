@@ -11,7 +11,7 @@ sudo mkdir -p /opt/subs
 sudo git clone https://github.com/kakadea/subs.git /opt/subs/src
 cd /opt/subs/src
 chmod +x scripts/*.sh
-sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia
+sudo ./scripts/install-hestia.sh legenda.seudominio.com usuario_hestia
 ```
 
 O instalador perguntará apenas a URL pública, o e-mail e a senha do administrador na primeira execução. Ele gera os demais segredos automaticamente, cria o arquivo `.env` com permissão restrita (`600`) e deixa o upstream pronto em `127.0.0.1:18180`.
@@ -44,18 +44,26 @@ sudo docker compose --env-file /opt/subs/src/.env -f /opt/subs/src/docker-compos
 
 Não há `docker login`, GHCR, PAT ou GitHub CLI nesse ciclo.
 
-## 3. Configuração no HestiaCP
+## 3. Fluxo do catálogo
+
+O painel agora trabalha com projetos de anime. Em **Criar projeto**, cole uma URL HTTPS do MyAnimeList no formato `https://myanimelist.net/anime/2076/Kindaichi_Shounen_no_Jikenbo`. O servidor valida o domínio e o caminho, consulta o provedor configurado em `METADATA_API_BASE_URL` e salva o título, a capa, o número de episódios e o link do MAL no MariaDB.
+
+Depois de criado, abra o projeto e use **Adicionar legenda** quantas vezes forem necessárias. Cada arquivo fica relacionado ao mesmo projeto; o upload pede somente arquivo, idioma, versão e visibilidade. Temporada e episódio não fazem mais parte do cadastro. Arquivos antigos que ainda não têm projeto aparecem em uma seção de compatibilidade até serem reorganizados.
+
+O catálogo público lista projetos, não arquivos soltos. A página pública do projeto mostra a capa, o nome, a quantidade de episódios e os downloads disponíveis. A fonte padrão é a Tenrai, uma API pública com esquema compatível com os campos necessários da Jikan/MAL; a URL do provedor fica configurável para permitir substituição futura.
+
+## 4. Configuração no HestiaCP
 
 O instalador configura automaticamente o proxy do domínio usando o template customizado `subs`, com upstream em `http://127.0.0.1:18180`. Ele usa a CLI oficial `v-add-web-domain-proxy` para domínios sem proxy e `v-change-web-domain-proxy-tpl` para domínios que já possuem proxy. Depois disso, as atualizações normais não reaplicam o template nem reiniciam o Hestia; só recriam o container `app`.
 
 Se quiser conferir no painel, o domínio deve estar com **Proxy Support** ativo. O certificado TLS continua sendo gerenciado pelo HestiaCP; o container não publica HTTPS próprio.
 
-## 4. Boas Práticas lá dentro
+## 5. Boas Práticas lá dentro
 
 ### Segurança
 - **Nunca versionar o `.env`:** Ele contém as senhas do banco e a chave de sessão. O `.gitignore` e o `.dockerignore` já estão configurados para não enviá-lo ao Git nem para dentro da imagem.
 - **Permissões:** O arquivo `/opt/subs/src/.env` deve ser `600`, preferencialmente pertencente a `root:root`. Assim, usuários comuns não conseguem lê-lo. Pessoas com acesso `root` ou permissão administrativa sobre o Docker podem, por definição, acessar segredos do servidor; essa é uma limitação do modelo de host e não deve ser confundida com exposição pública.
-- **Exposição web:** O checkout em `/opt/subs/src` não é o `public_html` do Hestia. O Nginx interno serve a aplicação e o volume privado de legendas, não o arquivo `.env`; ele também não é incluído na imagem Docker.
+- **Exposição web:** O checkout em `/opt/subs/src` não é o `public_html` do Hestia. O Nginx interno recebe o volume de legendas somente como leitura e mantém `/protected/` como `internal`; essa rota não pode ser chamada diretamente pela Internet. O Nginx não serve o arquivo `.env`, e o `.env` também não é incluído na imagem Docker.
 - **Senha inicial:** `ADMIN_EMAIL` e `ADMIN_PASSWORD` servem somente para criar o primeiro administrador. Depois que já existe um admin, editar essas variáveis não troca a senha armazenada no MariaDB.
 - **Usuário não-root:** A aplicação Go dentro do Docker roda como usuário `subs`, não como `root`.
 
@@ -77,6 +85,10 @@ sudo chmod 600 /opt/subs/src/.env
 
 Esse último passo é opcional, mas reduz a quantidade de segredos operacionais mantidos no ambiente do container.
 
+### Downloads
+
+Os endpoints `/download/{id}` e `/l/{token}` passam pela autorização da aplicação. O app entrega o arquivo com `Content-Length`, `Content-Disposition`, suporte a Range e `Cache-Control: private, no-store`; não há dependência do `X-Accel-Redirect` ou do path `/protected/`.
+
 ### Organização de Arquivos
 - **Storage:** As legendas ficam no volume `subtitles_data`. Não tente acessá-las pela pasta `public_html` do Hestia; elas são privadas.
 - **Nomes:** O sistema renomeia os arquivos para o hash SHA-256 deles. Isso evita conflitos de nomes e ataques de path traversal.
@@ -89,7 +101,7 @@ Esse último passo é opcional, mas reduz a quantidade de segredos operacionais 
     docker compose exec -T mariadb mariadb-dump -u subs -p subs > backup.sql
     ```
 
-## 5. Comandos Úteis
+## 6. Comandos Úteis
 
 - **Ver logs:** `docker compose logs -f app`
 - **Ver status:** `docker compose ps`

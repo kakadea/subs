@@ -1,32 +1,45 @@
 {{define "content"}}
 <section class="hero">
-  <div class="eyebrow">Biblioteca de legendas</div>
-  <h1>Encontre a legenda certa<br><em>para cada episódio.</em></h1>
-  <p class="hero-copy">Um catálogo organizado para armazenar, atualizar e compartilhar suas legendas com segurança.</p>
+  <div class="eyebrow">Biblioteca de animes</div>
+  <h1>Encontre o anime<br><em>e suas legendas.</em></h1>
+  <p class="hero-copy">Cada projeto reúne todas as legendas de um anime em um só lugar, com informações importadas do MyAnimeList.</p>
   <form class="search-form" method="get" action="/" role="search">
-    <label class="sr-only" for="catalog-search">Pesquisar catálogo</label>
-    <input id="catalog-search" name="q" value="{{.Query}}" placeholder="Buscar por título, episódio ou idioma" autocomplete="off">
+    <label class="sr-only" for="catalog-search">Pesquisar</label>
+    <input id="catalog-search" name="q" value="{{.Query}}" placeholder="Buscar por nome do anime" autocomplete="off">
     <button type="submit">Pesquisar</button>
   </form>
 </section>
 
 <section class="section-head">
-  <div><div class="eyebrow">Catálogo público</div><h2>{{if .Query}}Resultados para “{{.Query}}”{{else}}Legendas recentes{{end}}</h2></div>
-  <span class="result-count">{{len .Subtitles}} itens</span>
+  <div><div class="eyebrow">Catálogo público</div><h2>{{if .Query}}Resultados para “{{.Query}}”{{else}}Projetos recentes{{end}}</h2></div>
+  <span class="result-count">{{len .Projects}} projetos</span>
 </section>
 
-{{if .Subtitles}}
-<div class="subtitle-grid">
-  {{range .Subtitles}}
-  <article class="subtitle-card">
-    <div class="card-top"><span class="format-tag">.{{lower .Format}}</span><span class="visibility-dot {{.Visibility}}">{{.Visibility}}</span></div>
-    <h3><a href="/s/{{.PublicID}}">{{.Title}}</a></h3>
-    <p class="meta">{{if .Season}}Temporada {{.Season}} · {{end}}{{if .Episode}}Episódio {{.Episode}}{{else}}Legenda completa{{end}}</p>
-    <div class="card-bottom"><span>{{.Language}}</span><span>{{bytes .FileSize}}</span></div>
+{{if .Projects}}
+<div class="project-grid">
+  {{range .Projects}}
+  <article class="project-card">
+    <a class="project-cover" href="/p/{{.PublicID}}">
+      {{if .ImageURL}}<img src="{{.ImageURL}}" alt="Capa de {{.Title}}" loading="lazy">{{else}}<span class="cover-placeholder">S</span>{{end}}
+    </a>
+    <div class="project-card-body">
+      <h3><a href="/p/{{.PublicID}}">{{.Title}}</a></h3>
+      <p class="meta">{{if .Episodes}}{{.Episodes}} episódios{{else}}Episódios não informados{{end}}</p>
+      <div class="card-bottom"><span>{{.SubtitleCount}} legendas</span><span>Ver projeto →</span></div>
+    </div>
   </article>
   {{end}}
 </div>
-{{else}}
-<div class="empty-state"><div class="empty-icon">⌕</div><h3>Nenhuma legenda encontrada</h3><p>Tente outro termo ou volte mais tarde para conferir novos envios.</p></div>
+{{else}}{{if not .LegacySubtitles}}
+<div class="empty-state"><div class="empty-icon">⌕</div><h3>Nenhum projeto encontrado</h3><p>Tente outro termo ou volte mais tarde para conferir novos animes.</p></div>
+{{end}}{{end}}
+
+{{if .LegacySubtitles}}
+<section class="section-head legacy-head"><div><div class="eyebrow">Compatibilidade</div><h2>Arquivos antigos</h2></div><span class="result-count">{{len .LegacySubtitles}} arquivos</span></section>
+<div class="subtitle-list">
+  {{range .LegacySubtitles}}
+  <article class="subtitle-row"><div><strong>{{.Title}}</strong><span class="table-sub">{{.OriginalFilename}} · {{.Language}} · {{bytes .FileSize}}</span></div><a class="primary-button compact-button" href="/download/{{.PublicID}}">Baixar <span>↓</span></a></article>
+  {{end}}
+</div>
 {{end}}
 {{end}}

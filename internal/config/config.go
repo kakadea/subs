@@ -39,7 +39,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Addr:              env("ADDR", ":8080"),
 		AppEnv:            env("APP_ENV", "production"),
-		BaseURL:           strings.TrimRight(env("BASE_URL", "http://localhost:8081"), "/"),
+		BaseURL:           strings.TrimRight(env("BASE_URL", "http://localhost:18180"), "/"),
 		CookieSecure:      boolEnv("COOKIE_SECURE", true),
 		DatabaseDSN:       env("DATABASE_DSN", "subs:subs@tcp(mariadb:3306)/subs?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci"),
 		StorageRoot:       env("STORAGE_ROOT", "/data"),

@@ -8,7 +8,7 @@ DOMAIN="${1:-}"
 HESTIA_USER="${2:-}"
 
 if [[ -z "$DOMAIN" || -z "$HESTIA_USER" ]]; then
-  echo "Uso: sudo ./scripts/install.sh legenda.seudominio.com usuario_hestia" >&2
+  echo "Uso: sudo ./scripts/install-hestia.sh legenda.seudominio.com usuario_hestia" >&2
   exit 1
 fi
 

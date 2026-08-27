@@ -1,0 +1,21 @@
+{{define "content"}}
+<section class="admin-head">
+  <div>
+    <a class="back-link" href="/admin">← Voltar ao painel</a>
+    <div class="eyebrow">Novo projeto</div>
+    <h1>Criar catálogo</h1>
+    <p class="muted">Informe o link do anime no MyAnimeList. O sistema coleta o nome, a capa e o número de episódios automaticamente.</p>
+  </div>
+</section>
+<div class="upload-layout project-new-layout">
+  <form method="post" action="/admin/projects" class="upload-card">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+    <label for="mal-url">Link do anime no MyAnimeList <span class="required">*</span></label>
+    <input id="mal-url" name="mal_url" type="url" required placeholder="https://myanimelist.net/anime/2076/Kindaichi_Shounen_no_Jikenbo" autocomplete="url">
+    <p class="help">Use a URL da página de anime, no formato https://myanimelist.net/anime/ID/titulo.</p>
+    <button class="primary-button" type="submit">Coletar e criar projeto <span>→</span></button>
+  </form>
+  <aside class="info-panel"><div class="info-icon">✓</div><h3>Um projeto, várias legendas</h3><p>Depois de criar o projeto, você poderá adicionar quantas legendas quiser. Todas ficarão agrupadas na mesma página do anime.</p><div class="info-line"><span>Coleta</span><strong>Nome · capa · episódios</strong></div><div class="info-line"><span>Fonte</span><strong>MyAnimeList</strong></div></aside>
+</div>
+{{end}}

@@ -1,14 +1,28 @@
 {{define "content"}}
 <section class="admin-head">
-  <div><div class="eyebrow">Área restrita · {{.User.Email}}</div><h1>Painel do catálogo</h1><p class="muted">Gerencie arquivos, versões e links de distribuição.</p></div>
-  <a class="primary-button" href="/admin/upload">Enviar legenda <span>＋</span></a>
+  <div><div class="eyebrow">Área restrita · {{.User.Email}}</div><h1>Painel do catálogo</h1><p class="muted">Crie projetos de anime e reúna todas as legendas de cada título.</p></div>
+  <a class="primary-button" href="/admin/projects/new">Criar projeto <span>＋</span></a>
 </section>
 {{if .Success}}<div class="alert alert-success">{{.Success}}</div>{{end}}
 {{if .Link}}<div class="alert alert-link"><strong>Link temporário criado.</strong><input readonly value="{{.Link}}"></div>{{end}}
-<section class="toolbar"><form class="admin-search" method="get" action="/admin"><label class="sr-only" for="admin-search">Pesquisar</label><input id="admin-search" name="q" value="{{.Query}}" placeholder="Pesquisar no catálogo"><button type="submit">Buscar</button></form><span class="result-count">{{len .Subtitles}} itens</span></section>
-{{if .Subtitles}}
+<section class="toolbar"><form class="admin-search" method="get" action="/admin"><label class="sr-only" for="admin-search">Pesquisar</label><input id="admin-search" name="q" value="{{.Query}}" placeholder="Pesquisar projetos"><button type="submit">Buscar</button></form><span class="result-count">{{len .Projects}} projetos</span></section>
+{{if .Projects}}
+<div class="admin-project-grid">
+  {{range .Projects}}
+  <article class="admin-project-card">
+    <a class="project-cover small" href="/admin/projects/{{.PublicID}}">{{if .ImageURL}}<img src="{{.ImageURL}}" alt="Capa de {{.Title}}" loading="lazy">{{else}}<span class="cover-placeholder">S</span>{{end}}</a>
+    <div class="admin-project-card-body"><div class="eyebrow">MAL #{{.MALID}}</div><h3><a href="/admin/projects/{{.PublicID}}">{{.Title}}</a></h3><p class="meta">{{if .Episodes}}{{.Episodes}} episódios{{else}}Episódios não informados{{end}}</p><div class="card-bottom"><span>{{.SubtitleCount}} legendas</span><a class="text-button" href="/admin/projects/{{.PublicID}}">Gerenciar →</a></div></div>
+  </article>
+  {{end}}
+</div>
+{{else}}{{if not .LegacySubtitles}}
+<div class="empty-state compact"><div class="empty-icon">＋</div><h3>Nenhum projeto criado</h3><p>Comece informando o link de um anime do MyAnimeList.</p><a class="primary-button" href="/admin/projects/new">Criar primeiro projeto <span>→</span></a></div>
+{{end}}{{end}}
+
+{{if .LegacySubtitles}}
+<section class="section-head legacy-head"><div><div class="eyebrow">Compatibilidade</div><h2>Legendas antigas sem projeto</h2></div><span class="result-count">{{len .LegacySubtitles}} arquivos</span></section>
 <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Legenda</th><th>Formato</th><th>Tamanho</th><th>Status</th><th>Ações</th></tr></thead><tbody>
-{{range .Subtitles}}<tr><td><a class="table-title" href="/s/{{.PublicID}}">{{.Title}}</a><span class="table-sub">{{if .Episode}}Ep. {{.Episode}} · {{end}}{{.OriginalFilename}}</span></td><td><span class="format-tag">.{{lower .Format}}</span></td><td>{{bytes .FileSize}}</td><td><span class="visibility-dot {{.Visibility}}">{{.Visibility}}</span></td><td><div class="row-actions"><form method="post" action="/admin/subtitles/{{.PublicID}}/link"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="text-button">Link</button></form><form method="post" action="/admin/subtitles/{{.PublicID}}/delete"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="text-button danger">Remover</button></form></div></td></tr>{{end}}
+{{range .LegacySubtitles}}<tr><td><a class="table-title" href="/s/{{.PublicID}}">{{.Title}}</a><span class="table-sub">{{.OriginalFilename}}</span></td><td><span class="format-tag">.{{lower .Format}}</span></td><td>{{bytes .FileSize}}</td><td><span class="visibility-dot {{.Visibility}}">{{.Visibility}}</span></td><td><div class="row-actions"><form method="post" action="/admin/subtitles/{{.PublicID}}/link"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="text-button">Link</button></form><form method="post" action="/admin/subtitles/{{.PublicID}}/delete"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="text-button danger">Remover</button></form></div></td></tr>{{end}}
 </tbody></table></div>
-{{else}}<div class="empty-state compact"><div class="empty-icon">＋</div><h3>Seu catálogo está vazio</h3><p>Envie a primeira legenda para começar a organizar a biblioteca.</p><a class="primary-button" href="/admin/upload">Enviar primeira legenda <span>→</span></a></div>{{end}}
+{{end}}
 {{end}}

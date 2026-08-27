@@ -1,0 +1,28 @@
+{{define "content"}}
+{{with .Project}}
+<section class="admin-head">
+  <div>
+    <a class="back-link" href="/admin">← Voltar ao painel</a>
+    <div class="eyebrow">Projeto · MAL #{{.MALID}}</div>
+    <h1>{{.Title}}</h1>
+    <p class="muted">{{if .Episodes}}{{.Episodes}} episódios{{else}}Episódios não informados{{end}} · <a class="source-link" href="{{.MALURL}}" target="_blank" rel="noopener noreferrer">MyAnimeList ↗</a></p>
+  </div>
+  <a class="primary-button" href="/admin/projects/{{.PublicID}}/upload">Adicionar legenda <span>＋</span></a>
+</section>
+{{if $.Success}}<div class="alert alert-success">{{$.Success}}</div>{{end}}
+{{if $.Link}}<div class="alert alert-link"><strong>Link temporário criado.</strong><input readonly value="{{$.Link}}"></div>{{end}}
+<div class="project-admin-summary">
+  <div class="project-admin-cover">{{if .ImageURL}}<img src="{{.ImageURL}}" alt="Capa de {{.Title}}">{{else}}<span class="cover-placeholder large">S</span>{{end}}</div>
+  <div><span class="field-label">Fonte</span><strong>MyAnimeList #{{.MALID}}</strong><span class="table-sub">Os dados do projeto foram coletados ao cadastrar a URL.</span></div>
+  <div><span class="field-label">Arquivos</span><strong>{{len $.ProjectSubtitles}}</strong><span class="table-sub">legendas neste projeto</span></div>
+</div>
+<section class="section-head project-files-head"><div><div class="eyebrow">Biblioteca do projeto</div><h2>Legendas</h2></div><span class="result-count">{{len $.ProjectSubtitles}} arquivos</span></section>
+{{if $.ProjectSubtitles}}
+<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Arquivo</th><th>Formato</th><th>Idioma</th><th>Versão</th><th>Tamanho</th><th>Visibilidade</th><th>Ações</th></tr></thead><tbody>
+{{range $.ProjectSubtitles}}<tr><td><a class="table-title" href="/s/{{.PublicID}}">{{.OriginalFilename}}</a></td><td><span class="format-tag">.{{lower .Format}}</span></td><td>{{.Language}}</td><td>{{.Version}}</td><td>{{bytes .FileSize}}</td><td><span class="visibility-dot {{.Visibility}}">{{.Visibility}}</span></td><td><div class="row-actions"><form method="post" action="/admin/subtitles/{{.PublicID}}/link"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="text-button">Link</button></form><form method="post" action="/admin/subtitles/{{.PublicID}}/delete"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="text-button danger">Remover</button></form></div></td></tr>{{end}}
+</tbody></table></div>
+{{else}}
+<div class="empty-state compact"><div class="empty-icon">＋</div><h3>Projeto criado sem legendas</h3><p>Adicione o primeiro arquivo para ele aparecer no catálogo público.</p><a class="primary-button" href="/admin/projects/{{.PublicID}}/upload">Adicionar legenda <span>→</span></a></div>
+{{end}}
+{{end}}
+{{end}}
