@@ -49,6 +49,7 @@ type ViewData struct {
 	Error            string
 	Success          string
 	Link             string
+	PublicLink       string
 	MaxUploadMB      int64
 }
 
@@ -98,8 +99,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/projects/{id}", a.adminProject)
 	mux.HandleFunc("GET /admin/projects/{id}/upload", a.uploadPage)
 	mux.HandleFunc("POST /admin/projects/{id}/upload", a.upload)
-	mux.HandleFunc("GET /admin/upload", a.newProjectPage)
-	mux.HandleFunc("POST /admin/upload", a.upload)
+	mux.HandleFunc("POST /admin/projects/{id}/visibility", a.setProjectVisibility)
+	mux.HandleFunc("GET /admin/upload", a.legacyUploadRedirect)
+	mux.HandleFunc("POST /admin/upload", a.legacyUploadRedirect)
 	mux.HandleFunc("POST /admin/subtitles/{id}/delete", a.deleteSubtitle)
 	mux.HandleFunc("POST /admin/subtitles/{id}/link", a.createLink)
 	return a.middleware(mux)
@@ -142,22 +144,15 @@ func (a *App) catalog(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	user, logged := a.currentUser(r)
 	var userPtr *store.User
-	includePrivate := false
 	if logged {
 		userPtr = &user
-		includePrivate = user.IsAdmin()
 	}
-	projects, err := a.store.ListProjects(r.Context(), query, includePrivate)
+	projects, err := a.store.ListProjects(r.Context(), query, false)
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	legacy, err := a.store.ListSubtitles(r.Context(), query, includePrivate)
-	if err != nil {
-		a.serverError(w, err)
-		return
-	}
-	a.render(w, "catalog.html", ViewData{Title: "Catálogo", User: userPtr, Query: query, Projects: projects, LegacySubtitles: legacy})
+	a.render(w, "catalog.html", ViewData{Title: "Catálogo", User: userPtr, Query: query, Projects: projects})
 }
 
 func (a *App) project(w http.ResponseWriter, r *http.Request) {
@@ -304,12 +299,47 @@ func (a *App) admin(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	legacy, err := a.store.ListSubtitles(r.Context(), query, true)
+	a.render(w, "admin.html", ViewData{Title: "Painel", User: &user, CSRF: a.ensureCSRF(w, r), Query: query, Projects: projects, Success: r.URL.Query().Get("success"), Link: r.URL.Query().Get("link")})
+}
+
+func (a *App) legacyUploadRedirect(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireAdmin(w, r); !ok {
+		return
+	}
+	http.Redirect(w, r, "/admin/projects/new", http.StatusSeeOther)
+}
+
+func (a *App) setProjectVisibility(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if !a.validCSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
+	}
+	publicID := r.PathValue("id")
+	project, err := a.store.GetProject(r.Context(), publicID, true)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "admin.html", ViewData{Title: "Painel", User: &user, CSRF: a.ensureCSRF(w, r), Query: query, Projects: projects, LegacySubtitles: legacy, Success: r.URL.Query().Get("success"), Link: r.URL.Query().Get("link")})
+	visibility := "private"
+	message := "Projeto retirado do catálogo público."
+	if r.FormValue("visibility") == "public" {
+		visibility = "public"
+		message = "Projeto compartilhado no catálogo público."
+	}
+	if err := a.store.SetProjectVisibility(r.Context(), publicID, visibility); err != nil {
+		a.serverError(w, err)
+		return
+	}
+	_ = a.store.Audit(r.Context(), &user.ID, "project_visibility", nil, clientIP(r), fmt.Sprintf(`{"project_id":%d,"visibility":%q}`, project.ID, visibility))
+	http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape(message), http.StatusSeeOther)
 }
 
 func (a *App) newProjectPage(w http.ResponseWriter, r *http.Request) {
@@ -384,7 +414,11 @@ func (a *App) adminProject(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "project-admin.html", ViewData{Title: project.Title, User: &user, Project: &project, ProjectSubtitles: subs, CSRF: a.ensureCSRF(w, r), Success: r.URL.Query().Get("success"), Link: r.URL.Query().Get("link"), MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+	publicLink := ""
+	if project.Visibility == "public" {
+		publicLink = strings.TrimRight(a.cfg.BaseURL, "/") + "/p/" + project.PublicID
+	}
+	a.render(w, "project-admin.html", ViewData{Title: project.Title, User: &user, Project: &project, ProjectSubtitles: subs, CSRF: a.ensureCSRF(w, r), Success: r.URL.Query().Get("success"), Link: r.URL.Query().Get("link"), PublicLink: publicLink, MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
 }
 
 func (a *App) accountPage(w http.ResponseWriter, r *http.Request) {

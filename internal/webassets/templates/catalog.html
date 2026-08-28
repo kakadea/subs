@@ -1,8 +1,8 @@
 {{define "content"}}
 <section class="hero">
-  <div class="eyebrow">Biblioteca de animes</div>
+  <div class="eyebrow">Catálogo compartilhado</div>
   <h1>Encontre o anime<br><em>e suas legendas.</em></h1>
-  <p class="hero-copy">Cada projeto reúne todas as legendas de um anime em um só lugar, com informações importadas do MyAnimeList.</p>
+  <p class="hero-copy">Cada projeto reúne todas as legendas de um anime em um só lugar. Projetos privados ficam disponíveis somente para administração.</p>
   <form class="search-form" method="get" action="/" role="search">
     <label class="sr-only" for="catalog-search">Pesquisar</label>
     <input id="catalog-search" name="q" value="{{.Query}}" placeholder="Buscar por nome do anime" autocomplete="off">
@@ -11,7 +11,7 @@
 </section>
 
 <section class="section-head">
-  <div><div class="eyebrow">Catálogo público</div><h2>{{if .Query}}Resultados para “{{.Query}}”{{else}}Projetos recentes{{end}}</h2></div>
+  <div><div class="eyebrow">Catálogo público</div><h2>{{if .Query}}Resultados para “{{.Query}}”{{else}}Projetos compartilhados{{end}}</h2></div>
   <span class="result-count">{{len .Projects}} projetos</span>
 </section>
 
@@ -25,21 +25,12 @@
     <div class="project-card-body">
       <h3><a href="/p/{{.PublicID}}">{{.Title}}</a></h3>
       <p class="meta">{{if .Episodes}}{{.Episodes}} episódios{{else}}Episódios não informados{{end}}</p>
-      <div class="card-bottom"><span>{{.SubtitleCount}} legendas</span><span>Ver projeto →</span></div>
+      <div class="card-bottom"><span>{{.SubtitleCount}} legendas públicas</span><span>Ver projeto →</span></div>
     </div>
   </article>
   {{end}}
 </div>
-{{else}}{{if not .LegacySubtitles}}
-<div class="empty-state"><div class="empty-icon">⌕</div><h3>Nenhum projeto encontrado</h3><p>Tente outro termo ou volte mais tarde para conferir novos animes.</p></div>
-{{end}}{{end}}
-
-{{if .LegacySubtitles}}
-<section class="section-head legacy-head"><div><div class="eyebrow">Compatibilidade</div><h2>Arquivos antigos</h2></div><span class="result-count">{{len .LegacySubtitles}} arquivos</span></section>
-<div class="subtitle-list">
-  {{range .LegacySubtitles}}
-  <article class="subtitle-row"><div><strong>{{.Title}}</strong><span class="table-sub">{{.OriginalFilename}} · {{.Language}} · {{bytes .FileSize}}</span></div><a class="primary-button compact-button" href="/download/{{.PublicID}}">Baixar <span>↓</span></a></article>
-  {{end}}
-</div>
+{{else}}
+<div class="empty-state"><div class="empty-icon">⌕</div><h3>Nenhum projeto compartilhado</h3><p>O administrador ainda não publicou um projeto neste catálogo.</p></div>
 {{end}}
 {{end}}

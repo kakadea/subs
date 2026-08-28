@@ -33,11 +33,13 @@ CREATE TABLE IF NOT EXISTS anime_projects (
     title VARCHAR(255) NOT NULL,
     image_url VARCHAR(512) NOT NULL DEFAULT '',
     episodes INT UNSIGNED NOT NULL DEFAULT 0,
+    visibility ENUM('public','private') NOT NULL DEFAULT 'private',
     created_by BIGINT UNSIGNED NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_projects_user FOREIGN KEY (created_by) REFERENCES users(id),
     INDEX idx_projects_title (title),
+    INDEX idx_projects_visibility (visibility, updated_at),
     INDEX idx_projects_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -121,6 +123,7 @@ type AnimeProject struct {
 	Title         string
 	ImageURL      string
 	Episodes      int
+	Visibility    string
 	SubtitleCount int
 	CreatedBy     uint64
 	CreatedAt     time.Time
@@ -175,6 +178,15 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return fmt.Errorf("add project relation: %w", err)
 		}
 	}
+	var projectVisibilityColumn int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'anime_projects' AND COLUMN_NAME = 'visibility'`).Scan(&projectVisibilityColumn); err != nil {
+		return fmt.Errorf("check project visibility migration: %w", err)
+	}
+	if projectVisibilityColumn == 0 {
+		if _, err := s.DB.ExecContext(ctx, `ALTER TABLE anime_projects ADD COLUMN visibility ENUM('public','private') NOT NULL DEFAULT 'private' AFTER episodes, ADD INDEX idx_projects_visibility (visibility, updated_at)`); err != nil {
+			return fmt.Errorf("add project visibility: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -195,6 +207,24 @@ func (s *Store) EnsureAdmin(ctx context.Context, email, password string) error {
 	}
 	_, err = s.DB.ExecContext(ctx, `INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'admin')`, strings.ToLower(strings.TrimSpace(email)), string(hash))
 	return err
+}
+
+func (s *Store) SetProjectVisibility(ctx context.Context, publicID, visibility string) error {
+	if visibility != "public" && visibility != "private" {
+		return fmt.Errorf("invalid project visibility")
+	}
+	result, err := s.DB.ExecContext(ctx, `UPDATE anime_projects SET visibility = ? WHERE public_id = ?`, visibility, publicID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) SetAdminPassword(ctx context.Context, email, password string) error {
@@ -286,15 +316,20 @@ func (s *Store) DeleteSession(ctx context.Context, token string) error {
 }
 
 const subtitleColumns = `id, project_id, public_id, title, episode, season, language, format, original_filename, storage_name, storage_path, file_size, checksum, version, visibility, created_by, created_at, updated_at`
+const subtitleColumnsQualified = `s.id, s.project_id, s.public_id, s.title, s.episode, s.season, s.language, s.format, s.original_filename, s.storage_name, s.storage_path, s.file_size, s.checksum, s.version, s.visibility, s.created_by, s.created_at, s.updated_at`
 
 func (s *Store) CreateProject(ctx context.Context, project AnimeProject) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO anime_projects (public_id, mal_id, mal_url, title, image_url, episodes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`, project.PublicID, project.MALID, project.MALURL, project.Title, project.ImageURL, project.Episodes, project.CreatedBy)
+	visibility := project.Visibility
+	if visibility != "public" {
+		visibility = "private"
+	}
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO anime_projects (public_id, mal_id, mal_url, title, image_url, episodes, visibility, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, project.PublicID, project.MALID, project.MALURL, project.Title, project.ImageURL, project.Episodes, visibility, project.CreatedBy)
 	return err
 }
 
 func (s *Store) GetProjectByMALID(ctx context.Context, malID int) (AnimeProject, error) {
 	var project AnimeProject
-	err := s.DB.QueryRowContext(ctx, `SELECT id, public_id, mal_id, mal_url, title, image_url, episodes, created_by, created_at, updated_at FROM anime_projects WHERE mal_id = ?`, malID).Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt)
+	err := s.DB.QueryRowContext(ctx, `SELECT id, public_id, mal_id, mal_url, title, image_url, episodes, visibility, created_by, created_at, updated_at FROM anime_projects WHERE mal_id = ?`, malID).Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.Visibility, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AnimeProject{}, ErrNotFound
 	}
@@ -303,11 +338,13 @@ func (s *Store) GetProjectByMALID(ctx context.Context, malID int) (AnimeProject,
 
 func (s *Store) ListProjects(ctx context.Context, query string, includePrivate bool) ([]AnimeProject, error) {
 	pattern := "%" + strings.ReplaceAll(strings.TrimSpace(query), "%", "\\%") + "%"
-	visibility := "AND s.visibility = 'public'"
+	subtitleVisibility := "AND s.visibility = 'public'"
+	projectWhere := "WHERE p.visibility = 'public' AND (p.title LIKE ? OR p.mal_url LIKE ?)"
 	if includePrivate {
-		visibility = ""
+		subtitleVisibility = ""
+		projectWhere = "WHERE (p.title LIKE ? OR p.mal_url LIKE ?)"
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT p.id, p.public_id, p.mal_id, p.mal_url, p.title, p.image_url, p.episodes, p.created_by, p.created_at, p.updated_at, COUNT(s.id) FROM anime_projects p LEFT JOIN subtitles s ON s.project_id = p.id AND s.deleted_at IS NULL `+visibility+` WHERE (p.title LIKE ? OR p.mal_url LIKE ?) `+` GROUP BY p.id ORDER BY p.updated_at DESC, p.created_at DESC LIMIT 200`, pattern, pattern)
+	rows, err := s.DB.QueryContext(ctx, `SELECT p.id, p.public_id, p.mal_id, p.mal_url, p.title, p.image_url, p.episodes, p.visibility, p.created_by, p.created_at, p.updated_at, COUNT(s.id) FROM anime_projects p LEFT JOIN subtitles s ON s.project_id = p.id AND s.deleted_at IS NULL `+subtitleVisibility+` `+projectWhere+` GROUP BY p.id ORDER BY p.updated_at DESC, p.created_at DESC LIMIT 200`, pattern, pattern)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +352,7 @@ func (s *Store) ListProjects(ctx context.Context, query string, includePrivate b
 	var result []AnimeProject
 	for rows.Next() {
 		var project AnimeProject
-		if err := rows.Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt, &project.SubtitleCount); err != nil {
+		if err := rows.Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.Visibility, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt, &project.SubtitleCount); err != nil {
 			return nil, err
 		}
 		result = append(result, project)
@@ -325,7 +362,7 @@ func (s *Store) ListProjects(ctx context.Context, query string, includePrivate b
 
 func (s *Store) GetProjectByID(ctx context.Context, id uint64) (AnimeProject, error) {
 	var project AnimeProject
-	err := s.DB.QueryRowContext(ctx, `SELECT id, public_id, mal_id, mal_url, title, image_url, episodes, created_by, created_at, updated_at FROM anime_projects WHERE id = ?`, id).Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt)
+	err := s.DB.QueryRowContext(ctx, `SELECT id, public_id, mal_id, mal_url, title, image_url, episodes, visibility, created_by, created_at, updated_at FROM anime_projects WHERE id = ?`, id).Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.Visibility, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AnimeProject{}, ErrNotFound
 	}
@@ -333,12 +370,14 @@ func (s *Store) GetProjectByID(ctx context.Context, id uint64) (AnimeProject, er
 }
 
 func (s *Store) GetProject(ctx context.Context, publicID string, includePrivate bool) (AnimeProject, error) {
-	visibility := "AND s.visibility = 'public'"
+	subtitleVisibility := "AND s.visibility = 'public'"
+	projectVisibility := "AND p.visibility = 'public'"
 	if includePrivate {
-		visibility = ""
+		subtitleVisibility = ""
+		projectVisibility = ""
 	}
 	var project AnimeProject
-	err := s.DB.QueryRowContext(ctx, `SELECT p.id, p.public_id, p.mal_id, p.mal_url, p.title, p.image_url, p.episodes, p.created_by, p.created_at, p.updated_at, COUNT(s.id) FROM anime_projects p LEFT JOIN subtitles s ON s.project_id = p.id AND s.deleted_at IS NULL `+visibility+` WHERE p.public_id = ? GROUP BY p.id`, publicID).Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt, &project.SubtitleCount)
+	err := s.DB.QueryRowContext(ctx, `SELECT p.id, p.public_id, p.mal_id, p.mal_url, p.title, p.image_url, p.episodes, p.visibility, p.created_by, p.created_at, p.updated_at, COUNT(s.id) FROM anime_projects p LEFT JOIN subtitles s ON s.project_id = p.id AND s.deleted_at IS NULL `+subtitleVisibility+` WHERE p.public_id = ? `+projectVisibility+` GROUP BY p.id`, publicID).Scan(&project.ID, &project.PublicID, &project.MALID, &project.MALURL, &project.Title, &project.ImageURL, &project.Episodes, &project.Visibility, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt, &project.SubtitleCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AnimeProject{}, ErrNotFound
 	}
@@ -394,12 +433,14 @@ func (s *Store) ListSubtitles(ctx context.Context, query string, includePrivate 
 }
 
 func (s *Store) GetSubtitle(ctx context.Context, publicID string, includePrivate bool) (Subtitle, error) {
-	visibility := "AND visibility = 'public'"
+	visibility := "AND s.visibility = 'public' AND p.visibility = 'public'"
+	join := "JOIN anime_projects p ON p.id = s.project_id"
 	if includePrivate {
 		visibility = ""
+		join = "LEFT JOIN anime_projects p ON p.id = s.project_id"
 	}
 	var sub Subtitle
-	err := s.DB.QueryRowContext(ctx, `SELECT `+subtitleColumns+` FROM subtitles WHERE public_id = ? AND deleted_at IS NULL `+visibility, publicID).Scan(&sub.ID, &sub.ProjectID, &sub.PublicID, &sub.Title, &sub.Episode, &sub.Season, &sub.Language, &sub.Format, &sub.OriginalFilename, &sub.StorageName, &sub.StoragePath, &sub.FileSize, &sub.Checksum, &sub.Version, &sub.Visibility, &sub.CreatedBy, &sub.CreatedAt, &sub.UpdatedAt)
+	err := s.DB.QueryRowContext(ctx, `SELECT `+subtitleColumnsQualified+` FROM subtitles s `+join+` WHERE s.public_id = ? AND s.deleted_at IS NULL `+visibility, publicID).Scan(&sub.ID, &sub.ProjectID, &sub.PublicID, &sub.Title, &sub.Episode, &sub.Season, &sub.Language, &sub.Format, &sub.OriginalFilename, &sub.StorageName, &sub.StoragePath, &sub.FileSize, &sub.Checksum, &sub.Version, &sub.Visibility, &sub.CreatedBy, &sub.CreatedAt, &sub.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Subtitle{}, ErrNotFound
 	}

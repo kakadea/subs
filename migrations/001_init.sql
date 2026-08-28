@@ -6,6 +6,24 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS anime_projects (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    public_id CHAR(32) NOT NULL UNIQUE,
+    mal_id INT UNSIGNED NOT NULL UNIQUE,
+    mal_url VARCHAR(512) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    image_url VARCHAR(512) NOT NULL DEFAULT '',
+    episodes INT UNSIGNED NOT NULL DEFAULT 0,
+    visibility ENUM('public','private') NOT NULL DEFAULT 'private',
+    created_by BIGINT UNSIGNED NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_projects_user FOREIGN KEY (created_by) REFERENCES users(id),
+    INDEX idx_projects_title (title),
+    INDEX idx_projects_visibility (visibility, updated_at),
+    INDEX idx_projects_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash CHAR(64) NOT NULL PRIMARY KEY,
     user_id BIGINT UNSIGNED NOT NULL,
@@ -17,6 +35,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS subtitles (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id BIGINT UNSIGNED NULL,
     public_id CHAR(32) NOT NULL UNIQUE,
     title VARCHAR(255) NOT NULL,
     episode VARCHAR(64) NOT NULL DEFAULT '',
@@ -35,7 +54,9 @@ CREATE TABLE IF NOT EXISTS subtitles (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at DATETIME NULL,
     CONSTRAINT fk_subtitles_user FOREIGN KEY (created_by) REFERENCES users(id),
+    CONSTRAINT fk_subtitles_project FOREIGN KEY (project_id) REFERENCES anime_projects(id) ON DELETE SET NULL,
     INDEX idx_subtitles_search (title, episode, language),
+    INDEX idx_subtitles_project (project_id),
     INDEX idx_subtitles_public (public_id, visibility, deleted_at),
     INDEX idx_subtitles_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
