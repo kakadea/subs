@@ -33,7 +33,7 @@ O script `deploy.sh` executa, na prática:
 
 ```bash
 sudo docker compose --env-file /opt/subs/src/.env build app
-sudo docker compose --env-file /opt/subs/src/.env up -d --no-deps app
+sudo docker compose --env-file /opt/subs/src/.env up -d --no-deps --force-recreate app
 ```
 
 Para acompanhar o resultado:
@@ -43,6 +43,18 @@ sudo docker compose --env-file /opt/subs/src/.env -f /opt/subs/src/docker-compos
 ```
 
 Não há `docker login`, GHCR, PAT ou GitHub CLI nesse ciclo.
+
+### Limites de recursos
+
+O `docker-compose.yml` limita cada serviço para não herdar o limite amplo de memória do host. A configuração atual é:
+
+| Serviço | Memória máxima | Swap | CPU máxima |
+|---|---:|---:|---:|
+| `app` | 256 MB | 0 MB adicional | 0,25 CPU |
+| `nginx-files` | 128 MB | 0 MB adicional | 0,30 CPU |
+| `mariadb` | 256 MB | 0 MB adicional | 0,25 CPU |
+
+`memswap_limit` igual a `mem_limit` impede que cada container use swap adicional além do limite de memória. Esses limites valem somente para os três containers do `subs`; os serviços do restante do VPS não são alterados. O MariaDB continua com seu volume persistente, e o limite não apaga dados.
 
 ## 3. Fluxo do catálogo
 

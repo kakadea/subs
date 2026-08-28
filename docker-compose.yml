@@ -5,6 +5,9 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: "0.25"
     environment:
       ADDR: ":8080"
       APP_ENV: "production"
@@ -35,6 +38,9 @@ services:
   nginx-files:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: "0.30"
     ports:
       - "127.0.0.1:${LOCAL_PROXY_PORT:-18180}:80"
     volumes:
@@ -49,6 +55,9 @@ services:
   mariadb:
     image: mariadb:11.4
     restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: "0.25"
     command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--max-connections=80"]
     environment:
       MARIADB_DATABASE: subs
