@@ -379,14 +379,9 @@ func (a *App) createProjectSource(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	name := limitString(r.FormValue("name"), 160)
 	sourceURL, err := validateSourceURL(r.FormValue("url"))
 	if err != nil {
 		a.redirectProjectError(w, r, project.PublicID, err.Error())
-		return
-	}
-	if name == "" {
-		a.redirectProjectError(w, r, project.PublicID, "Informe o nome da fonte.")
 		return
 	}
 	publicSourceID, err := randomID()
@@ -394,7 +389,7 @@ func (a *App) createProjectSource(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	source := store.ProjectSource{ProjectID: project.ID, PublicID: publicSourceID, Name: name, URL: sourceURL, Description: limitString(r.FormValue("description"), 500), CreatedBy: user.ID}
+	source := store.ProjectSource{ProjectID: project.ID, PublicID: publicSourceID, Name: sourceHost(sourceURL), URL: sourceURL, CreatedBy: user.ID}
 	if err := a.store.CreateProjectSource(r.Context(), source); err != nil {
 		a.serverError(w, err)
 		return
@@ -1000,6 +995,14 @@ func randomID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func sourceHost(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" {
+		return "link"
+	}
+	return limitString(parsed.Hostname(), 160)
 }
 
 func validateSourceURL(raw string) (string, error) {

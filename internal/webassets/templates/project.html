@@ -19,15 +19,15 @@
   <a class="project-tab {{if eq $.ProjectTab "sources"}}active{{end}}" href="/p/{{.PublicID}}?tab=sources">Fontes <span>{{len $.ProjectSources}}</span></a>
 </nav>
 {{if eq $.ProjectTab "sources"}}
-<section class="section-head"><div><div class="eyebrow">Referências do projeto</div><h2>Fontes</h2></div><span class="result-count">{{len $.ProjectSources}} links</span></section>
+<section class="section-head"><div><div class="eyebrow">Links do projeto</div><h2>Fontes</h2></div><span class="result-count">{{len $.ProjectSources}} links</span></section>
 {{if $.ProjectSources}}
 <div class="source-list">
   {{range $.ProjectSources}}
-  <article class="source-card"><div><strong>{{.Name}}</strong>{{if .Description}}<p class="table-sub">{{.Description}}</p>{{end}}</div><a class="secondary-button compact-button" href="{{.URL}}" target="_blank" rel="noopener noreferrer">Abrir fonte ↗</a></article>
+  <article class="source-card"><a class="source-url source-url-public" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.URL}} ↗</a></article>
   {{end}}
 </div>
 {{else}}
-<div class="empty-state compact"><div class="empty-icon">◎</div><h3>Nenhuma fonte cadastrada</h3><p>As fontes deste projeto ainda não foram adicionadas.</p></div>
+<div class="empty-state compact"><div class="empty-icon">◎</div><h3>Nenhum link cadastrado</h3><p>Ainda não há links relacionados a este projeto.</p></div>
 {{end}}
 {{else}}
 <section class="section-head"><div><div class="eyebrow">Arquivos do projeto</div><h2>Legendas disponíveis</h2></div><span class="result-count">{{len $.ProjectSubtitles}} arquivos</span></section>
