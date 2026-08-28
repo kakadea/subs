@@ -47,6 +47,7 @@ type ViewData struct {
 	ProjectSubtitles []store.Subtitle
 	LegacySubtitles  []store.Subtitle
 	ProjectSources   []store.ProjectSource
+	ProjectFonts     []store.ProjectFont
 	ProjectTab       string
 	UploadSummary    string
 	Subtitle         *store.Subtitle
@@ -65,6 +66,12 @@ var allowedExtensions = map[string]bool{
 	".ssa": true,
 	".vtt": true,
 	".sub": true,
+}
+
+var allowedFontExtensions = map[string]bool{
+	".ttf": true,
+	".otf": true,
+	".ttc": true,
 }
 
 func New(cfg config.Config, st *store.Store, logger *slog.Logger, providers ...mal.MetadataProvider) *App {
@@ -98,6 +105,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /s/{id}", a.detail)
 	mux.HandleFunc("GET /p/{id}", a.project)
 	mux.HandleFunc("GET /download/{id}", a.download)
+	mux.HandleFunc("GET /font/{id}", a.fontDownload)
+
 	mux.HandleFunc("GET /l/{token}", a.temporaryDownload)
 	mux.HandleFunc("GET /admin", a.admin)
 	mux.HandleFunc("GET /admin/projects/new", a.newProjectPage)
@@ -108,6 +117,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/projects/{id}/visibility", a.setProjectVisibility)
 	mux.HandleFunc("POST /admin/projects/{id}/sources", a.createProjectSource)
 	mux.HandleFunc("POST /admin/sources/{id}/delete", a.deleteProjectSource)
+	mux.HandleFunc("POST /admin/projects/{id}/fonts", a.uploadProjectFont)
+	mux.HandleFunc("POST /admin/fonts/{id}/delete", a.deleteProjectFont)
 
 	mux.HandleFunc("GET /admin/upload", a.legacyUploadRedirect)
 	mux.HandleFunc("POST /admin/upload", a.legacyUploadRedirect)
@@ -189,15 +200,22 @@ func (a *App) project(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	fonts, err := a.store.ListProjectFonts(r.Context(), project.ID, includePrivate)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
 	var userPtr *store.User
 	if logged {
 		userPtr = &user
 	}
 	tab := r.URL.Query().Get("tab")
-	if tab != "sources" {
+	if tab != "fonts" && tab != "sources" {
 		tab = "subtitles"
+	} else if tab == "sources" {
+		tab = "fonts"
 	}
-	a.render(w, "project.html", ViewData{Title: project.Title, User: userPtr, Project: &project, ProjectSubtitles: subs, ProjectSources: sources, ProjectTab: tab})
+	a.render(w, "project.html", ViewData{Title: project.Title, User: userPtr, Project: &project, ProjectSubtitles: subs, ProjectSources: sources, ProjectFonts: fonts, ProjectTab: tab})
 }
 
 func (a *App) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -284,6 +302,32 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = a.store.Audit(r.Context(), userID, "download", &sub.ID, clientIP(r), `{"kind":"public"}`)
 	a.accelRedirect(w, r, sub)
+}
+
+func (a *App) fontDownload(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	user, logged := a.currentUser(r)
+	includePrivate := logged && user.IsAdmin()
+	font, err := a.store.GetProjectFont(r.Context(), id, includePrivate)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	filePath, err := a.safeStoragePath(font.StoragePath)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	var userID *uint64
+	if logged {
+		userID = &user.ID
+	}
+	_ = a.store.Audit(r.Context(), userID, "font_download", nil, clientIP(r), fmt.Sprintf(`{"project_id":%d}`, font.ProjectID))
+	a.serveStoredFile(w, r, filePath, font.OriginalFilename, font.Format)
 }
 
 func (a *App) temporaryDownload(w http.ResponseWriter, r *http.Request) {
@@ -399,6 +443,157 @@ func (a *App) createProjectSource(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = a.store.Audit(r.Context(), &user.ID, "source_create", nil, clientIP(r), fmt.Sprintf(`{"project_id":%d}`, project.ID))
 	http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape("Fonte adicionada ao projeto."), http.StatusSeeOther)
+}
+
+func (a *App) uploadProjectFont(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if !a.validCSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
+	}
+	project, err := a.store.GetProject(r.Context(), r.PathValue("id"), true)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	batchLimit := a.cfg.MaxUploadBatchBytes + 1024*1024
+	r.Body = http.MaxBytesReader(w, r.Body, batchLimit)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		a.redirectProjectError(w, r, project.PublicID, "A fonte excede o limite total permitido ou é inválida.")
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	files := r.MultipartForm.File["font"]
+	if len(files) == 0 {
+		a.redirectProjectError(w, r, project.PublicID, "Selecione pelo menos um arquivo de fonte.")
+		return
+	}
+	if len(files) > a.cfg.MaxUploadFiles {
+		a.redirectProjectError(w, r, project.PublicID, fmt.Sprintf("Selecione no máximo %d arquivos por lote.", a.cfg.MaxUploadFiles))
+		return
+	}
+	results := make([]uploadResult, 0, len(files))
+	for _, header := range files {
+		results = append(results, a.persistProjectFont(r.Context(), user, project, header, clientIP(r)))
+	}
+	summary, added, failed, duplicates := formatUploadSummary(results)
+	message := fmt.Sprintf("Lote de fontes concluído: %d arquivo(s) adicionado(s).", added)
+	if failed > 0 || duplicates > 0 {
+		message += fmt.Sprintf(" %d falha(s), %d duplicada(s).", failed, duplicates)
+	}
+	redirect := "/admin/projects/" + project.PublicID + "?success=" + url.QueryEscape(message)
+	if summary != "" {
+		redirect += "&summary=" + url.QueryEscape(summary)
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
+}
+
+func (a *App) persistProjectFont(ctx context.Context, user store.User, project store.AnimeProject, header *multipart.FileHeader, ip string) uploadResult {
+	result := uploadResult{Filename: limitString(filepath.Base(header.Filename), 120)}
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !allowedFontExtensions[ext] {
+		result.Status = "falha"
+		result.Reason = "use TTF, OTF ou TTC"
+		return result
+	}
+	if header.Size <= 0 {
+		result.Status = "falha"
+		result.Reason = "arquivo vazio"
+		return result
+	}
+	if header.Size > a.cfg.MaxUploadBytes {
+		result.Status = "falha"
+		result.Reason = fmt.Sprintf("ultrapassa %d MB", a.cfg.MaxUploadBytes/1024/1024)
+		return result
+	}
+	file, err := header.Open()
+	if err != nil {
+		result.Status = "falha"
+		result.Reason = "não foi possível abrir o arquivo"
+		return result
+	}
+	defer file.Close()
+	if err := validateFontContent(file, ext); err != nil {
+		result.Status = "falha"
+		result.Reason = "o conteúdo não corresponde a uma fonte TTF/OTF/TTC"
+		return result
+	}
+	storageRoot := filepath.Clean(a.cfg.StorageRoot)
+	tempDir := filepath.Join(storageRoot, "temp")
+	if err := os.MkdirAll(tempDir, 0o750); err != nil {
+		result.Status = "falha"
+		result.Reason = "não foi possível preparar o storage"
+		return result
+	}
+	tmp, err := os.CreateTemp(tempDir, "font-upload-*")
+	if err != nil {
+		result.Status = "falha"
+		result.Reason = "não foi possível preparar o arquivo"
+		return result
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	hasher := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(tmp, hasher), io.LimitReader(file, a.cfg.MaxUploadBytes+1))
+	closeErr := tmp.Close()
+	if copyErr != nil || closeErr != nil {
+		result.Status = "falha"
+		result.Reason = "erro ao ler o arquivo"
+		return result
+	}
+	if written <= 0 {
+		result.Status = "falha"
+		result.Reason = "arquivo vazio"
+		return result
+	}
+	if written > a.cfg.MaxUploadBytes {
+		result.Status = "falha"
+		result.Reason = fmt.Sprintf("ultrapassa %d MB", a.cfg.MaxUploadBytes/1024/1024)
+		return result
+	}
+	checksum := hex.EncodeToString(hasher.Sum(nil))
+	relativePath := filepath.ToSlash(filepath.Join("fonts", checksum[:2], checksum[2:4], checksum+ext))
+	finalPath := filepath.Join(storageRoot, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(finalPath), 0o750); err != nil {
+		result.Status = "falha"
+		result.Reason = "não foi possível preparar o destino"
+		return result
+	}
+	if err := os.Link(tmpName, finalPath); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			result.Status = "duplicada"
+			result.Reason = "esta fonte já foi enviada"
+			return result
+		}
+		result.Status = "falha"
+		result.Reason = "não foi possível gravar no storage"
+		return result
+	}
+	publicID, err := randomID()
+	if err != nil {
+		_ = os.Remove(finalPath)
+		result.Status = "falha"
+		result.Reason = "não foi possível gerar o identificador"
+		return result
+	}
+	font := store.ProjectFont{ProjectID: project.ID, PublicID: publicID, OriginalFilename: limitString(filepath.Base(header.Filename), 255), StorageName: checksum + ext, StoragePath: relativePath, FileSize: written, Checksum: checksum, Format: strings.TrimPrefix(ext, "."), CreatedBy: user.ID}
+	if err := a.store.CreateProjectFont(ctx, font); err != nil {
+		_ = os.Remove(finalPath)
+		result.Status = "falha"
+		result.Reason = "não foi possível salvar no banco"
+		return result
+	}
+	_ = a.store.Audit(ctx, &user.ID, "font_upload", nil, ip, fmt.Sprintf(`{"project_id":%d,"format":%q}`, project.ID, font.Format))
+	result.Status = "adicionada"
+	result.Reason = "ok"
+	return result
 }
 
 func (a *App) deleteProjectSource(w http.ResponseWriter, r *http.Request) {
@@ -517,11 +712,16 @@ func (a *App) adminProject(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	fonts, err := a.store.ListProjectFonts(r.Context(), project.ID, true)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
 	publicLink := ""
 	if project.Visibility == "public" {
 		publicLink = strings.TrimRight(a.cfg.BaseURL, "/") + "/p/" + project.PublicID
 	}
-	a.render(w, "project-admin.html", ViewData{Title: project.Title, User: &user, Project: &project, ProjectSubtitles: subs, ProjectSources: sources, CSRF: a.ensureCSRF(w, r), Success: r.URL.Query().Get("success"), Error: r.URL.Query().Get("error"), UploadSummary: r.URL.Query().Get("summary"), Link: r.URL.Query().Get("link"), PublicLink: publicLink, MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+	a.render(w, "project-admin.html", ViewData{Title: project.Title, User: &user, Project: &project, ProjectSubtitles: subs, ProjectSources: sources, ProjectFonts: fonts, CSRF: a.ensureCSRF(w, r), Success: r.URL.Query().Get("success"), Error: r.URL.Query().Get("error"), UploadSummary: r.URL.Query().Get("summary"), Link: r.URL.Query().Get("link"), PublicLink: publicLink, MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024, MaxUploadFiles: a.cfg.MaxUploadFiles, MaxUploadBatchMB: a.cfg.MaxUploadBatchBytes / 1024 / 1024})
 
 }
 
@@ -762,6 +962,49 @@ func (a *App) persistUploadedSubtitle(ctx context.Context, user store.User, proj
 	return result
 }
 
+func (a *App) deleteProjectFont(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if !a.validCSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
+	}
+	font, err := a.store.GetProjectFont(r.Context(), r.PathValue("id"), true)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Redirect(w, r, "/admin?success="+url.QueryEscape("Fonte já removida ou inexistente."), http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	project, err := a.store.GetProjectByID(r.Context(), font.ProjectID)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	filePath, err := a.safeStoragePath(font.StoragePath)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	if err := a.store.DeleteProjectFont(r.Context(), font.PublicID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape("Fonte já removida ou inexistente."), http.StatusSeeOther)
+			return
+		}
+		a.serverError(w, err)
+		return
+	}
+	if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		a.log.Error("font file removal failed", "path", font.StoragePath, "error", err)
+	}
+	_ = a.store.Audit(r.Context(), &user.ID, "font_delete", nil, clientIP(r), fmt.Sprintf(`{"project_id":%d}`, project.ID))
+	http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape("Fonte removida permanentemente."), http.StatusSeeOther)
+}
+
 func (a *App) deleteSubtitle(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.requireAdmin(w, r)
 	if !ok {
@@ -846,14 +1089,26 @@ func (a *App) createLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) accelRedirect(w http.ResponseWriter, r *http.Request, sub store.Subtitle) {
+	filePath, err := a.safeStoragePath(sub.StoragePath)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	a.serveStoredFile(w, r, filePath, sub.OriginalFilename, sub.Format)
+}
+
+func (a *App) safeStoragePath(relative string) (string, error) {
 	storageRoot := filepath.Clean(a.cfg.StorageRoot)
-	relativePath := filepath.Clean(filepath.FromSlash(sub.StoragePath))
+	relativePath := filepath.Clean(filepath.FromSlash(relative))
 	filePath := filepath.Join(storageRoot, relativePath)
 	prefix := storageRoot + string(os.PathSeparator)
 	if filePath == storageRoot || !strings.HasPrefix(filePath, prefix) {
-		a.serverError(w, fmt.Errorf("invalid storage path"))
-		return
+		return "", fmt.Errorf("invalid storage path")
 	}
+	return filePath, nil
+}
+
+func (a *App) serveStoredFile(w http.ResponseWriter, r *http.Request, filePath, filename, format string) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -869,10 +1124,10 @@ func (a *App) accelRedirect(w http.ResponseWriter, r *http.Request, sub store.Su
 		a.serverError(w, err)
 		return
 	}
-	w.Header().Set("Content-Type", contentType(sub.Format))
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": sub.OriginalFilename}))
+	w.Header().Set("Content-Type", contentType(format))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	w.Header().Set("Cache-Control", "private, no-store")
-	http.ServeContent(w, r, sub.OriginalFilename, stat.ModTime(), file)
+	http.ServeContent(w, r, filename, stat.ModTime(), file)
 }
 
 func (a *App) currentUser(r *http.Request) (store.User, bool) {
@@ -970,6 +1225,29 @@ func formatUploadSummary(results []uploadResult) (string, int, int, int) {
 		}
 	}
 	return strings.Join(lines, " | "), added, failed, duplicates
+}
+
+func validateFontContent(file io.ReadSeeker, ext string) error {
+	var signature [4]byte
+	if _, err := io.ReadFull(file, signature[:]); err != nil {
+		return err
+	}
+	valid := false
+	switch ext {
+	case ".ttf":
+		valid = string(signature[:]) == "\x00\x01\x00\x00"
+	case ".otf":
+		valid = string(signature[:]) == "OTTO"
+	case ".ttc":
+		valid = string(signature[:]) == "ttcf"
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if !valid {
+		return fmt.Errorf("invalid font signature")
+	}
+	return nil
 }
 
 func validateSubtitleContent(file io.Reader) error {

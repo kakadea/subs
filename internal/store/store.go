@@ -60,6 +60,24 @@ CREATE TABLE IF NOT EXISTS anime_projects (
 	    INDEX idx_sources_project (project_id, created_at)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+	CREATE TABLE IF NOT EXISTS project_fonts (
+	    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+	    project_id BIGINT UNSIGNED NOT NULL,
+	    public_id CHAR(32) NOT NULL UNIQUE,
+	    original_filename VARCHAR(255) NOT NULL,
+	    storage_name CHAR(68) NOT NULL UNIQUE,
+	    storage_path VARCHAR(512) NOT NULL,
+	    file_size BIGINT UNSIGNED NOT NULL,
+	    checksum CHAR(64) NOT NULL,
+	    format VARCHAR(8) NOT NULL,
+	    created_by BIGINT UNSIGNED NOT NULL,
+	    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+	    CONSTRAINT fk_fonts_project FOREIGN KEY (project_id) REFERENCES anime_projects(id) ON DELETE CASCADE,
+	    CONSTRAINT fk_fonts_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+	    INDEX idx_fonts_project (project_id, created_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 	CREATE TABLE IF NOT EXISTS sessions (
 
     token_hash CHAR(64) NOT NULL PRIMARY KEY,
@@ -157,6 +175,21 @@ type ProjectSource struct {
 	CreatedBy   uint64
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type ProjectFont struct {
+	ID               uint64
+	ProjectID        uint64
+	PublicID         string
+	OriginalFilename string
+	StorageName      string
+	StoragePath      string
+	FileSize         int64
+	Checksum         string
+	Format           string
+	CreatedBy        uint64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type Subtitle struct {
@@ -495,6 +528,60 @@ func (s *Store) GetProjectSource(ctx context.Context, publicID string) (ProjectS
 
 func (s *Store) DeleteProjectSource(ctx context.Context, publicID string) error {
 	result, err := s.DB.ExecContext(ctx, `DELETE FROM project_sources WHERE public_id = ?`, publicID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) ListProjectFonts(ctx context.Context, projectID uint64, includePrivate bool) ([]ProjectFont, error) {
+	visibility := "JOIN anime_projects p ON p.id = f.project_id WHERE f.project_id = ? AND p.visibility = 'public'"
+	if includePrivate {
+		visibility = "WHERE f.project_id = ?"
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT f.id, f.project_id, f.public_id, f.original_filename, f.storage_name, f.storage_path, f.file_size, f.checksum, f.format, f.created_by, f.created_at, f.updated_at FROM project_fonts f `+visibility+` ORDER BY f.created_at ASC, f.id ASC`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []ProjectFont
+	for rows.Next() {
+		var font ProjectFont
+		if err := rows.Scan(&font.ID, &font.ProjectID, &font.PublicID, &font.OriginalFilename, &font.StorageName, &font.StoragePath, &font.FileSize, &font.Checksum, &font.Format, &font.CreatedBy, &font.CreatedAt, &font.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, font)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) CreateProjectFont(ctx context.Context, font ProjectFont) error {
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO project_fonts (project_id, public_id, original_filename, storage_name, storage_path, file_size, checksum, format, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, font.ProjectID, font.PublicID, font.OriginalFilename, font.StorageName, font.StoragePath, font.FileSize, font.Checksum, font.Format, font.CreatedBy)
+	return err
+}
+
+func (s *Store) GetProjectFont(ctx context.Context, publicID string, includePrivate bool) (ProjectFont, error) {
+	visibility := "JOIN anime_projects p ON p.id = f.project_id WHERE f.public_id = ? AND p.visibility = 'public'"
+	if includePrivate {
+		visibility = "WHERE f.public_id = ?"
+	}
+	var font ProjectFont
+	err := s.DB.QueryRowContext(ctx, `SELECT f.id, f.project_id, f.public_id, f.original_filename, f.storage_name, f.storage_path, f.file_size, f.checksum, f.format, f.created_by, f.created_at, f.updated_at FROM project_fonts f `+visibility, publicID).Scan(&font.ID, &font.ProjectID, &font.PublicID, &font.OriginalFilename, &font.StorageName, &font.StoragePath, &font.FileSize, &font.Checksum, &font.Format, &font.CreatedBy, &font.CreatedAt, &font.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ProjectFont{}, ErrNotFound
+	}
+	return font, err
+}
+
+func (s *Store) DeleteProjectFont(ctx context.Context, publicID string) error {
+	result, err := s.DB.ExecContext(ctx, `DELETE FROM project_fonts WHERE public_id = ?`, publicID)
 	if err != nil {
 		return err
 	}

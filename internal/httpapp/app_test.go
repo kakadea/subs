@@ -13,6 +13,29 @@ import (
 	"github.com/kakadea/subs/internal/store"
 )
 
+func TestValidateFontContent(t *testing.T) {
+	cases := []struct {
+		name string
+		ext  string
+		data string
+	}{
+		{name: "ttf", ext: ".ttf", data: "\x00\x01\x00\x00font"},
+		{name: "otf", ext: ".otf", data: "OTTOfont"},
+		{name: "ttc", ext: ".ttc", data: "ttcffont"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := strings.NewReader(tc.data)
+			if err := validateFontContent(file, tc.ext); err != nil {
+				t.Fatalf("expected %s font to pass: %v", tc.ext, err)
+			}
+		})
+	}
+	if err := validateFontContent(strings.NewReader("not-a-font"), ".ttf"); err == nil {
+		t.Fatal("expected invalid font signature to be rejected")
+	}
+}
+
 func TestValidateSubtitleContent(t *testing.T) {
 	if err := validateSubtitleContent(strings.NewReader("1\n00:00:00,000 --> 00:00:01,000\nOlá\n")); err != nil {
 		t.Fatalf("expected text subtitle to pass: %v", err)
@@ -68,7 +91,8 @@ func TestRenderTemplates(t *testing.T) {
 		Projects:         []store.AnimeProject{{PublicID: "project", MALID: 2076, Title: "Kindaichi", Episodes: 148, SubtitleCount: 1}},
 		Project:          &store.AnimeProject{ID: projectID, PublicID: "project", MALID: 2076, Title: "Kindaichi", Episodes: 148, SubtitleCount: 1, ImageURL: "https://cdn.myanimelist.net/cover.jpg", MALURL: "https://myanimelist.net/anime/2076/Kindaichi"},
 		ProjectSubtitles: []store.Subtitle{{PublicID: "abc", ProjectID: &projectID, Title: "Kindaichi", OriginalFilename: "kindaichi.srt", Format: "srt", Visibility: "public", Language: "Português", Version: "1.0", FileSize: 1024}},
-		ProjectSources:   []store.ProjectSource{{PublicID: "source", ProjectID: projectID, Name: "Fonte oficial", URL: "https://example.com/source", Description: "Referência"}},
+		ProjectSources:   []store.ProjectSource{{PublicID: "source", ProjectID: projectID, Name: "example.com", URL: "https://example.com/source", Description: "Referência"}},
+		ProjectFonts:     []store.ProjectFont{{PublicID: "font", ProjectID: projectID, OriginalFilename: "anime.ttf", Format: "ttf", FileSize: 2048}},
 	}
 	for _, page := range pages {
 		recorder := httptest.NewRecorder()

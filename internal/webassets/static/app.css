@@ -113,12 +113,17 @@ h3 { letter-spacing: -.025em; }
 .source-card p { margin: 0; }
 .source-card .source-url { display: block; max-width: 680px; overflow: hidden; color: var(--accent); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .source-card .source-url + .table-sub { margin-top: 6px; }
+.source-url-public { flex: 1; min-width: 0; font-size: 13px !important; }
+.external-links-head { margin-top: 38px; }
+.font-manager { background: #f8fafc; }
+.external-source-manager { background: #fff; }
 .source-card .source-url:hover { text-decoration: underline; }
 .source-manager { margin: 0 0 38px; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: #f8fafc; }
 .source-manager-head { margin: 0 0 16px; }
 .source-manager h2 { margin: 5px 0 0; font-size: 23px; }
 .source-form { display: flex; flex-direction: column; gap: 9px; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .source-form .form-grid { margin: 0; }
+.source-form input[type=file] { padding: 10px; }
 .admin-source-list .source-card { background: var(--white); }
 .subtitle-list { display: flex; flex-direction: column; gap: 10px; }
 .subtitle-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--white); }
