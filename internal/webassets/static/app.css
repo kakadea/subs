@@ -112,7 +112,9 @@ h3 { letter-spacing: -.025em; }
 .share-panel h2 { margin: 5px 0 7px; font-size: 23px; }
 .share-panel p { max-width: 630px; margin: 0; color: #475569; font-size: 13px; line-height: 1.55; }
 .share-link { grid-column: 1 / -1; padding-top: 16px; border-top: 1px solid #bfdbfe; }
-.share-link input { width: 100%; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; background: var(--white); color: #1e3a8a; font-size: 13px; }
+.share-link-row { display: flex; align-items: center; gap: 10px; }
+.share-link-row input { flex: 1; min-width: 0; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; background: var(--white); color: #1e3a8a; font-size: 13px; }
+.share-help { margin-top: 8px !important; color: #64748b !important; font-size: 12px !important; }
 .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 16px; width: fit-content; border: 1px solid #93c5fd; border-radius: 10px; padding: 12px 17px; background: var(--white); color: #1d4ed8; font-size: 14px; font-weight: 750; }
 .secondary-button:hover { background: #dbeafe; }
 .project-files-head { margin-bottom: 16px; }
@@ -194,6 +196,8 @@ h3 { letter-spacing: -.025em; }
   .share-panel { align-items: stretch; }
   .share-panel .primary-button, .share-panel .secondary-button { width: 100%; }
   .share-link { grid-column: auto; }
+  .share-link-row { align-items: stretch; flex-direction: column; }
+  .share-link-row .secondary-button { width: 100%; }
   .admin-head { gap: 20px; }
   .admin-head .primary-button { width: 100%; }
   .admin-head h1 { font-size: 42px; }

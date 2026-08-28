@@ -53,8 +53,20 @@ func TestMariaDBIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	project, err = st.GetProjectByMALID(ctx, 2076)
-	if err != nil || project.Title != "Kindaichi Shounen no Jikenbo" {
-		t.Fatalf("get project: project=%+v err=%v", project, err)
+	if err != nil || project.Title != "Kindaichi Shounen no Jikenbo" || project.Visibility != "private" {
+		t.Fatalf("get private project: project=%+v err=%v", project, err)
+	}
+	if _, err := st.GetProject(ctx, project.PublicID, false); err != ErrNotFound {
+		t.Fatalf("private project should be hidden publicly, got %v", err)
+	}
+	if projects, err := st.ListProjects(ctx, "", false); err != nil || len(projects) != 0 {
+		t.Fatalf("private project should not be listed publicly: projects=%+v err=%v", projects, err)
+	}
+	if err := st.SetProjectVisibility(ctx, project.PublicID, "public"); err != nil {
+		t.Fatal(err)
+	}
+	if published, err := st.GetProject(ctx, project.PublicID, false); err != nil || published.Visibility != "public" {
+		t.Fatalf("published project should be visible: project=%+v err=%v", published, err)
 	}
 	newPassword := "Nova#senha = segura$2026"
 	if err := st.SetAdminPassword(ctx, "admin@test.local", newPassword); err != nil {
