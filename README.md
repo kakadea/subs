@@ -12,10 +12,11 @@ HestiaCP / Nginx do host
 Nginx interno no Docker
    ↓ proxy
 Go API :8080 ── MariaDB isolado
+   ├── rede de saída exclusiva → API de metadados
    └── valida e transmite downloads autorizados
 ```
 
-O HestiaCP termina TLS e administra o domínio. O Nginx interno apenas encaminha para a aplicação Go, que valida a legenda e entrega o arquivo com tamanho e suporte a Range corretos. A API cuida da autenticação, catálogo de projetos, coleta de metadados, uploads, links temporários e auditoria. O MariaDB guarda somente dados estruturados, e o storage nunca é webroot.
+O HestiaCP termina TLS e administra o domínio. O Nginx interno apenas encaminha para a aplicação Go, que valida a legenda e entrega o arquivo com tamanho e suporte a Range corretos. Somente o app possui uma rede Docker de saída para consultar a fonte pública de metadados; MariaDB e Nginx permanecem isolados e nenhuma porta nova é publicada. A API cuida da autenticação, catálogo de projetos, coleta de metadados, uploads, links temporários e auditoria. O MariaDB guarda somente dados estruturados, e o storage nunca é webroot.
 
 ## Funcionalidades implementadas
 

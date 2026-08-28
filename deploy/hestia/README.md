@@ -24,9 +24,10 @@ HestiaCP Nginx do host
 Nginx interno Docker
         ↓ http://app:8080
 Go app ─── MariaDB somente na rede Docker
+   └── rede de saída Docker exclusiva → Tenrai/MAL
 ```
 
-O binding `127.0.0.1:18180` é local ao servidor. O Nginx interno encaminha para o app e mantém o volume privado montado somente como leitura para a guarda interna de compatibilidade; a entrega atual é validada e transmitida pelo próprio app.
+O binding `127.0.0.1:18180` é local ao servidor. O Nginx interno encaminha para o app e mantém o volume privado montado somente como leitura para a guarda interna de compatibilidade; a entrega atual é validada e transmitida pelo próprio app. Para criar projetos, somente o app possui uma segunda rede Docker de saída, usada para consultar a API pública de metadados; MariaDB e Nginx não entram nessa rede e nenhuma porta adicional é publicada.
 
 ## Atualização normal
 

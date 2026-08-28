@@ -30,6 +30,7 @@ services:
         condition: service_healthy
     networks:
       - subs_internal
+      - subs_egress
 
   nginx-files:
     image: nginx:1.27-alpine
@@ -69,6 +70,10 @@ networks:
     driver: bridge
     internal: true
   subs_edge:
+    driver: bridge
+  # Saída externa exclusiva do app para APIs públicas de metadados.
+  # Não publica portas e não conecta o MariaDB à Internet.
+  subs_egress:
     driver: bridge
 
 volumes:
