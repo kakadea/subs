@@ -22,7 +22,7 @@ COMPOSE=("${DOCKER[@]}" compose --env-file "$ENV_FILE")
 
 # O código da aplicação é o único artefato reconstruído. Nginx e MariaDB não são tocados.
 "${COMPOSE[@]}" build app
-"${COMPOSE[@]}" up -d --no-deps app
+"${COMPOSE[@]}" up -d --no-deps --force-recreate app
 "${COMPOSE[@]}" ps app
 
 echo
