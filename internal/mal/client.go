@@ -25,8 +25,9 @@ type MetadataProvider interface {
 }
 
 type Client struct {
-	BaseURL    string
-	HTTPClient *http.Client
+	BaseURL     string
+	FallbackURL string
+	HTTPClient  *http.Client
 }
 
 type response struct {
@@ -46,12 +47,20 @@ type response struct {
 
 func NewClient(httpClient *http.Client, baseURL string) *Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 12 * time.Second}
+		httpClient = &http.Client{Timeout: 6 * time.Second}
 	}
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://api.tenrai.org/v1"
 	}
-	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: httpClient}
+	fallbackURL := "https://api.jikan.moe/v4"
+	if strings.EqualFold(strings.TrimRight(baseURL, "/"), fallbackURL) {
+		fallbackURL = ""
+	}
+	return &Client{
+		BaseURL:     strings.TrimRight(baseURL, "/"),
+		FallbackURL: fallbackURL,
+		HTTPClient:  httpClient,
+	}
 }
 
 func ParseURL(raw string) (int, error) {
@@ -86,18 +95,35 @@ func (c *Client) FetchAnime(ctx context.Context, malID int) (Anime, error) {
 	if malID <= 0 {
 		return Anime{}, fmt.Errorf("ID do MyAnimeList inválido")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/anime/%d", c.BaseURL, malID), nil)
-	if err != nil {
-		return Anime{}, err
+	bases := []string{c.BaseURL}
+	if c.FallbackURL != "" && !strings.EqualFold(c.BaseURL, c.FallbackURL) {
+		bases = append(bases, c.FallbackURL)
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "subs-catalog/1.0")
+	var lastErr error
+	for _, baseURL := range bases {
+		anime, err := c.fetchFrom(ctx, baseURL, malID)
+		if err == nil {
+			return anime, nil
+		}
+		lastErr = err
+	}
+	return Anime{}, fmt.Errorf("não foi possível consultar os metadados do anime: %w", lastErr)
+}
+
+func (c *Client) fetchFrom(ctx context.Context, baseURL string, malID int) (Anime, error) {
 	var payload response
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < 2; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/anime/%d", strings.TrimRight(baseURL, "/"), malID), nil)
+		if err != nil {
+			return Anime{}, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "subs-catalog/1.0")
+
 		resp, err := c.HTTPClient.Do(req)
 		if err != nil {
-			if attempt == 2 {
-				return Anime{}, fmt.Errorf("não foi possível consultar os metadados do MyAnimeList: %w", err)
+			if attempt == 1 {
+				return Anime{}, fmt.Errorf("consulta falhou: %w", err)
 			}
 			if err := waitRetry(ctx, attempt); err != nil {
 				return Anime{}, err
@@ -107,21 +133,22 @@ func (c *Client) FetchAnime(ctx context.Context, malID int) (Anime, error) {
 		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 			status := resp.StatusCode
 			_ = resp.Body.Close()
-			if (status == http.StatusTooManyRequests || status >= 500) && attempt < 2 {
+			if (status == http.StatusTooManyRequests || status >= 500) && attempt < 1 {
 				if err := waitRetry(ctx, attempt); err != nil {
 					return Anime{}, err
 				}
 				continue
 			}
-			return Anime{}, fmt.Errorf("a fonte de metadados respondeu HTTP %d", status)
+			return Anime{}, fmt.Errorf("a fonte respondeu HTTP %d", status)
 		}
 		err = json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&payload)
 		_ = resp.Body.Close()
 		if err != nil {
-			return Anime{}, fmt.Errorf("resposta de metadados inválida: %w", err)
+			return Anime{}, fmt.Errorf("resposta inválida: %w", err)
 		}
 		break
 	}
+
 	if payload.Data.MALID != malID || strings.TrimSpace(payload.Data.Title) == "" {
 		return Anime{}, fmt.Errorf("o anime informado não foi encontrado no MyAnimeList")
 	}

@@ -58,6 +58,30 @@ func TestFetchAnime(t *testing.T) {
 	}
 }
 
+func TestFetchAnimeFallsBackToJikan(t *testing.T) {
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/anime/2076" {
+			t.Fatalf("unexpected fallback path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"data":{"mal_id":2076,"url":"https://myanimelist.net/anime/2076/Kindaichi_Shounen_no_Jikenbo","images":{"jpg":{"large_image_url":"https://cdn.myanimelist.net/images/anime/1702/120440l.jpg"}},"title":"Kindaichi Shounen no Jikenbo","episodes":148}}`))
+	}))
+	defer fallback.Close()
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "temporary failure", http.StatusBadGateway)
+	}))
+	defer primary.Close()
+
+	client := NewClient(primary.Client(), primary.URL)
+	client.FallbackURL = fallback.URL
+	got, err := client.FetchAnime(context.Background(), 2076)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "Kindaichi Shounen no Jikenbo" || got.Episodes != 148 {
+		t.Fatalf("unexpected fallback result: %+v", got)
+	}
+}
+
 func TestFetchAnimeRejectsUntrustedImage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"data":{"mal_id":1,"url":"https://myanimelist.net/anime/1/Test","images":{"jpg":{"large_image_url":"https://evil.example/cover.jpg"}},"title":"Test","episodes":1}}`))
