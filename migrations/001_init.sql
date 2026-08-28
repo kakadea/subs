@@ -52,12 +52,11 @@ CREATE TABLE IF NOT EXISTS subtitles (
     created_by BIGINT UNSIGNED NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at DATETIME NULL,
     CONSTRAINT fk_subtitles_user FOREIGN KEY (created_by) REFERENCES users(id),
     CONSTRAINT fk_subtitles_project FOREIGN KEY (project_id) REFERENCES anime_projects(id) ON DELETE SET NULL,
     INDEX idx_subtitles_search (title, episode, language),
     INDEX idx_subtitles_project (project_id),
-    INDEX idx_subtitles_public (public_id, visibility, deleted_at),
+    INDEX idx_subtitles_public (public_id, visibility),
     INDEX idx_subtitles_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -47,7 +47,7 @@ func main() {
 	st := store.New(db)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := st.Migrate(ctx); err != nil {
+	if err := st.Migrate(ctx, cfg.StorageRoot); err != nil {
 		logger.Error("migration failed", "error", err)
 		os.Exit(1)
 	}
@@ -122,7 +122,7 @@ func changeAdminPassword(logger *slog.Logger, args []string) error {
 	st := store.New(db)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := st.Migrate(ctx); err != nil {
+	if err := st.Migrate(ctx, cfg.StorageRoot); err != nil {
 		return err
 	}
 	if err := st.SetAdminPassword(ctx, args[0], string(password)); err != nil {

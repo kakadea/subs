@@ -93,6 +93,12 @@ func TestMariaDBIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.GetSubtitle(ctx, sub.PublicID, true); err != ErrNotFound {
-		t.Fatalf("expected deleted subtitle to be hidden, got %v", err)
+		t.Fatalf("expected deleted subtitle to be gone, got %v", err)
+	}
+	if _, err := st.GetDownloadLink(ctx, link); err != ErrNotFound {
+		t.Fatalf("expected download link to be cascaded, got %v", err)
+	}
+	if _, err := st.GetSubtitleByID(ctx, got.ID); err != ErrNotFound {
+		t.Fatalf("expected deleted subtitle id to be gone, got %v", err)
 	}
 }

@@ -60,7 +60,7 @@ O `docker-compose.yml` limita cada serviço para não herdar o limite amplo de m
 
 O painel agora trabalha com projetos de anime. Em **Criar projeto**, cole uma URL HTTPS do MyAnimeList no formato `https://myanimelist.net/anime/2076/Kindaichi_Shounen_no_Jikenbo`. O servidor valida o domínio e o caminho, consulta o provedor configurado em `METADATA_API_BASE_URL` e salva o título, a capa, o número de episódios e o link do MAL no MariaDB.
 
-Depois de criado, abra o projeto e use **Adicionar legenda** quantas vezes forem necessárias. Cada arquivo fica relacionado ao mesmo projeto; o upload pede somente arquivo, idioma, versão e visibilidade. Temporada e episódio não fazem mais parte do cadastro. Arquivos antigos que ainda não têm projeto aparecem em uma seção de compatibilidade até serem reorganizados.
+Depois de criado, abra o projeto e use **Adicionar legenda** quantas vezes forem necessárias. Cada arquivo fica relacionado ao mesmo projeto; o upload pede somente arquivo, idioma, versão e visibilidade. Temporada e episódio não fazem mais parte do cadastro. Novos arquivos devem ser cadastrados dentro de um projeto.
 
 O catálogo público lista projetos, não arquivos soltos. A página pública do projeto mostra a capa, o nome, a quantidade de episódios e os downloads disponíveis. A fonte padrão é a Tenrai, uma API pública com esquema compatível com os campos necessários da Jikan/MAL; a URL do provedor fica configurável para permitir substituição futura.
 
@@ -106,7 +106,7 @@ Os endpoints `/download/{id}` e `/l/{token}` passam pela autorização da aplica
 - **Nomes:** O sistema renomeia os arquivos para o hash SHA-256 deles. Isso evita conflitos de nomes e ataques de path traversal.
 
 ### Banco de Dados
-- **Metadata:** O MariaDB guarda apenas o "índice". Se você precisar deletar algo permanentemente, use o Painel Administrativo (que faz o delete lógico).
+- **Metadata:** O MariaDB guarda o índice e a exclusão pelo Painel Administrativo é definitiva: o registro é apagado do banco, os links temporários associados são removidos por cascata e o arquivo é removido do volume de storage. Não há restauração automática.
 - **Backup:**
     ```bash
     # Exemplo de backup do banco; use a senha quando solicitado

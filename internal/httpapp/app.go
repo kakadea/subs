@@ -575,6 +575,11 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	visibility := "public"
+	if r.FormValue("visibility") == "private" {
+		visibility = "private"
+	}
+
 	// Hard-linking is atomic and fails safely when the same checksum is uploaded concurrently.
 	if err := os.Link(tmpName, finalPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -590,10 +595,6 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(finalPath)
 		a.serverError(w, err)
 		return
-	}
-	visibility := "public"
-	if r.FormValue("visibility") == "private" {
-		visibility = "private"
 	}
 	projectIDValue := project.ID
 	sub := store.Subtitle{
@@ -644,6 +645,13 @@ func (a *App) deleteSubtitle(w http.ResponseWriter, r *http.Request) {
 			projectPublicID = project.PublicID
 		}
 	}
+	storageRoot := filepath.Clean(a.cfg.StorageRoot)
+	storedPath := filepath.Clean(filepath.FromSlash(sub.StoragePath))
+	filePath := filepath.Join(storageRoot, storedPath)
+	if filePath == storageRoot || !strings.HasPrefix(filePath, storageRoot+string(os.PathSeparator)) {
+		a.serverError(w, fmt.Errorf("invalid storage path"))
+		return
+	}
 	if err := a.store.DeleteSubtitle(r.Context(), r.PathValue("id")); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			http.Redirect(w, r, "/admin?success="+url.QueryEscape("Legenda já removida ou inexistente."), http.StatusSeeOther)
@@ -652,10 +660,13 @@ func (a *App) deleteSubtitle(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	_ = a.store.Audit(r.Context(), &user.ID, "delete", &sub.ID, clientIP(r), "")
-	redirect := "/admin?success=" + url.QueryEscape("Legenda removida.")
+	if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		a.log.Error("subtitle file removal failed", "path", sub.StoragePath, "error", err)
+	}
+	_ = a.store.Audit(r.Context(), &user.ID, "delete", &sub.ID, clientIP(r), `{"permanent":true}`)
+	redirect := "/admin?success=" + url.QueryEscape("Legenda removida permanentemente.")
 	if projectPublicID != "" {
-		redirect = "/admin/projects/" + projectPublicID + "?success=" + url.QueryEscape("Legenda removida.")
+		redirect = "/admin/projects/" + projectPublicID + "?success=" + url.QueryEscape("Legenda removida permanentemente.")
 	}
 	http.Redirect(w, r, redirect, http.StatusSeeOther)
 }
