@@ -1,20 +1,20 @@
 {{define "content"}}
 {{with .Project}}
-<section class="admin-head"><div><a class="back-link" href="/admin/projects/{{.PublicID}}">← Voltar ao projeto</a><div class="eyebrow">Nova legenda · {{.Title}}</div><h1>Adicionar legenda</h1><p class="muted">O arquivo será associado a este projeto. O nome do anime vem do cadastro do MyAnimeList.</p></div></section>
+<section class="admin-head"><div><a class="back-link" href="/admin/projects/{{.PublicID}}">← Voltar ao projeto</a><div class="eyebrow">Nova legenda · {{.Title}}</div><h1>Adicionar legendas</h1><p class="muted">Selecione vários arquivos de uma vez. Todos serão associados a este projeto.</p></div></section>
 <div class="upload-layout">
   <form method="post" action="/admin/projects/{{.PublicID}}/upload" enctype="multipart/form-data" class="upload-card"><input type="hidden" name="_csrf" value="{{$.CSRF}}">
     {{if $.Error}}<div class="alert alert-error">{{$.Error}}</div>{{end}}
-    <label for="subtitle">Arquivo de legenda <span class="required">*</span></label>
-    <input id="subtitle" name="subtitle" type="file" required accept=".srt,.ass,.ssa,.vtt,.sub">
-    <p class="help">Formatos aceitos: SRT, ASS, SSA, VTT e SUB. Limite: {{$.MaxUploadMB}} MB.</p>
+    <label for="subtitle">Arquivos de legenda <span class="required">*</span></label>
+    <input id="subtitle" name="subtitle" type="file" required multiple accept=".srt,.ass,.ssa,.vtt,.sub">
+    <p class="help">Você pode selecionar até {{$.MaxUploadFiles}} arquivos. Formatos aceitos: SRT, ASS, SSA, VTT e SUB. Limite individual: {{$.MaxUploadMB}} MB; lote: {{$.MaxUploadBatchMB}} MB.</p>
     <div class="form-grid">
       <div><label for="language">Idioma</label><input id="language" name="language" value="Português"></div>
       <div><label for="version">Versão</label><input id="version" name="version" value="1.0"></div>
       <div><label for="visibility">Visibilidade</label><select id="visibility" name="visibility"><option value="public">Público</option><option value="private">Privado</option></select></div>
     </div>
-    <button class="primary-button" type="submit">Validar e adicionar <span>→</span></button>
+    <button class="primary-button" type="submit">Validar e adicionar lote <span>→</span></button>
   </form>
-  <aside class="info-panel"><div class="info-icon">✓</div><h3>{{.Title}}</h3><p>Esta legenda será exibida junto das demais versões e idiomas deste projeto.</p><div class="info-line"><span>Episódios no MAL</span><strong>{{if .Episodes}}{{.Episodes}}{{else}}Não informado{{end}}</strong></div><div class="info-line"><span>Storage</span><strong>Protegido</strong></div></aside>
+  <aside class="info-panel"><div class="info-icon">✓</div><h3>{{.Title}}</h3><p>Os arquivos válidos entram juntos na biblioteca. Se algum estiver duplicado ou inválido, os demais continuam sendo processados.</p><div class="info-line"><span>Episódios no MAL</span><strong>{{if .Episodes}}{{.Episodes}}{{else}}Não informado{{end}}</strong></div><div class="info-line"><span>Storage</span><strong>Protegido</strong></div></aside>
 </div>
 {{end}}
 {{end}}

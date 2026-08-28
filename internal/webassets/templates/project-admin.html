@@ -10,16 +10,29 @@
   <a class="primary-button" href="/admin/projects/{{.PublicID}}/upload">Adicionar legenda <span>＋</span></a>
 </section>
 {{if $.Success}}<div class="alert alert-success">{{$.Success}}</div>{{end}}
+{{if $.Error}}<div class="alert alert-error">{{$.Error}}</div>{{end}}
+{{if $.UploadSummary}}<div class="alert alert-upload-summary"><strong>Detalhes do lote:</strong> {{$.UploadSummary}}</div>{{end}}
 {{if $.Link}}<div class="alert alert-link"><strong>Link temporário criado.</strong><input readonly value="{{$.Link}}"></div>{{end}}
 <div class="project-admin-summary">
   <div class="project-admin-cover">{{if .ImageURL}}<img src="{{.ImageURL}}" alt="Capa de {{.Title}}">{{else}}<span class="cover-placeholder large">S</span>{{end}}</div>
-  <div><span class="field-label">Fonte</span><strong>MyAnimeList #{{.MALID}}</strong><span class="table-sub">Nome, capa e episódios coletados automaticamente.</span></div>
+  <div><span class="field-label">Fonte principal</span><strong>MyAnimeList #{{.MALID}}</strong><span class="table-sub">Nome, capa e episódios coletados automaticamente.</span></div>
   <div><span class="field-label">Arquivos</span><strong>{{len $.ProjectSubtitles}}</strong><span class="table-sub">legendas neste projeto</span></div>
 </div>
 <section class="share-panel">
   <div><div class="eyebrow">Visibilidade do projeto</div><h2>{{if eq .Visibility "public"}}Projeto compartilhado{{else}}Projeto privado{{end}}</h2><p>{{if eq .Visibility "public"}}Qualquer pessoa com o link pode abrir esta página e baixar as legendas públicas.{{else}}Este projeto só aparece no painel administrativo até você compartilhá-lo.{{end}}</p></div>
   <form method="post" action="/admin/projects/{{.PublicID}}/visibility"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><input type="hidden" name="visibility" value="{{if eq .Visibility "public"}}private{{else}}public{{end}}"><button class="{{if eq .Visibility "public"}}secondary-button{{else}}primary-button{{end}}" type="submit">{{if eq .Visibility "public"}}Deixar privado{{else}}Compartilhar projeto{{end}}</button></form>
   {{if eq .Visibility "public"}}<div class="share-link"><span class="field-label">Link público para compartilhar</span><div class="share-link-row"><input id="project-public-link" readonly value="{{$.PublicLink}}" aria-label="Link público do projeto"><button class="secondary-button compact-button" type="button" data-copy-target="project-public-link">Copiar link</button><a class="secondary-button compact-button" href="{{$.PublicLink}}" target="_blank" rel="noopener noreferrer">Abrir página ↗</a></div><p class="share-help">Envie este endereço para quem poderá acessar o projeto e baixar as legendas públicas.</p></div>{{end}}
+</section>
+<section class="source-manager">
+  <div class="section-head source-manager-head"><div><div class="eyebrow">Referências do projeto</div><h2>Fontes</h2></div><span class="result-count">{{len $.ProjectSources}} cadastradas</span></div>
+  <form method="post" action="/admin/projects/{{.PublicID}}/sources" class="source-form"><input type="hidden" name="_csrf" value="{{$.CSRF}}">
+    <div class="form-grid"><div><label for="source-name">Nome da fonte <span class="required">*</span></label><input id="source-name" name="name" required maxlength="160" placeholder="Ex.: Fansub oficial"></div><div><label for="source-url">URL HTTPS <span class="required">*</span></label><input id="source-url" name="url" type="url" required maxlength="1024" placeholder="https://exemplo.com/projeto"></div></div>
+    <label for="source-description">Descrição</label><input id="source-description" name="description" maxlength="500" placeholder="Opcional: informação sobre esta fonte">
+    <button class="secondary-button" type="submit">Adicionar fonte <span>＋</span></button>
+  </form>
+  {{if $.ProjectSources}}
+  <div class="source-list admin-source-list">{{range $.ProjectSources}}<article class="source-card"><div><strong>{{.Name}}</strong><a class="source-url" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.URL}} ↗</a>{{if .Description}}<p class="table-sub">{{.Description}}</p>{{end}}</div><form method="post" action="/admin/sources/{{.PublicID}}/delete"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button class="text-button danger" type="submit">Remover</button></form></article>{{end}}</div>
+  {{else}}<div class="empty-state compact"><div class="empty-icon">◎</div><h3>Nenhuma fonte cadastrada</h3><p>Adicione sites, páginas de referência ou fontes relacionadas a este projeto.</p></div>{{end}}
 </section>
 <section class="section-head project-files-head"><div><div class="eyebrow">Biblioteca do projeto</div><h2>Legendas</h2></div><span class="result-count">{{len $.ProjectSubtitles}} arquivos</span></section>
 {{if $.ProjectSubtitles}}

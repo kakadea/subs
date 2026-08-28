@@ -18,6 +18,9 @@ func TestLoadAcceptsSecureDefaults(t *testing.T) {
 	if cfg.MaxUploadBytes != 25*1024*1024 {
 		t.Fatalf("unexpected default upload limit: %d", cfg.MaxUploadBytes)
 	}
+	if cfg.MaxUploadFiles != 20 || cfg.MaxUploadBatchBytes != 100*1024*1024 {
+		t.Fatalf("unexpected batch limits: files=%d bytes=%d", cfg.MaxUploadFiles, cfg.MaxUploadBatchBytes)
+	}
 	if cfg.SessionTTL.Hours() != 168 {
 		t.Fatalf("unexpected session ttl: %v", cfg.SessionTTL)
 	}

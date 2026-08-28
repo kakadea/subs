@@ -22,6 +22,32 @@ func TestValidateSubtitleContent(t *testing.T) {
 	}
 }
 
+func TestValidateSourceURL(t *testing.T) {
+	valid, err := validateSourceURL(" https://example.com/source?id=7 ")
+	if err != nil || valid != "https://example.com/source?id=7" {
+		t.Fatalf("valid source URL = %q, err %v", valid, err)
+	}
+	for _, value := range []string{"", "http://example.com", "//example.com/path", "https://", "https://user:pass@example.com/path", "https://example.com/a" + string(rune(10)) + "b"} {
+		if _, err := validateSourceURL(value); err == nil {
+			t.Errorf("validateSourceURL(%q) accepted an invalid URL", value)
+		}
+	}
+}
+
+func TestFormatUploadSummary(t *testing.T) {
+	summary, added, failed, duplicates := formatUploadSummary([]uploadResult{
+		{Filename: "one.srt", Status: "adicionada", Reason: "ok"},
+		{Filename: "two.ass", Status: "duplicada", Reason: "este arquivo já foi enviado"},
+		{Filename: "three.exe", Status: "falha", Reason: "extensão não permitida"},
+	})
+	if added != 1 || failed != 1 || duplicates != 1 {
+		t.Fatalf("counts = %d/%d/%d, want 1/1/1", added, failed, duplicates)
+	}
+	if !strings.Contains(summary, "two.ass") || !strings.Contains(summary, "three.exe") {
+		t.Fatalf("summary = %q", summary)
+	}
+}
+
 func TestFormatBytes(t *testing.T) {
 	cases := map[int64]string{0: "0 B", 1024: "1.0 KB", 1024 * 1024: "1.0 MB"}
 	for input, expected := range cases {
@@ -42,6 +68,7 @@ func TestRenderTemplates(t *testing.T) {
 		Projects:         []store.AnimeProject{{PublicID: "project", MALID: 2076, Title: "Kindaichi", Episodes: 148, SubtitleCount: 1}},
 		Project:          &store.AnimeProject{ID: projectID, PublicID: "project", MALID: 2076, Title: "Kindaichi", Episodes: 148, SubtitleCount: 1, ImageURL: "https://cdn.myanimelist.net/cover.jpg", MALURL: "https://myanimelist.net/anime/2076/Kindaichi"},
 		ProjectSubtitles: []store.Subtitle{{PublicID: "abc", ProjectID: &projectID, Title: "Kindaichi", OriginalFilename: "kindaichi.srt", Format: "srt", Visibility: "public", Language: "Português", Version: "1.0", FileSize: 1024}},
+		ProjectSources:   []store.ProjectSource{{PublicID: "source", ProjectID: projectID, Name: "Fonte oficial", URL: "https://example.com/source", Description: "Referência"}},
 	}
 	for _, page := range pages {
 		recorder := httptest.NewRecorder()

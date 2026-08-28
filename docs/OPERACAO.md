@@ -60,9 +60,11 @@ O `docker-compose.yml` limita cada serviço para não herdar o limite amplo de m
 
 O painel agora trabalha com projetos de anime. Em **Criar projeto**, cole uma URL HTTPS do MyAnimeList no formato `https://myanimelist.net/anime/2076/Kindaichi_Shounen_no_Jikenbo`. O servidor valida o domínio e o caminho, consulta o provedor configurado em `METADATA_API_BASE_URL` e salva o título, a capa, o número de episódios e o link do MAL no MariaDB.
 
-Depois de criado, abra o projeto e use **Adicionar legenda** quantas vezes forem necessárias. Cada arquivo fica relacionado ao mesmo projeto; o upload pede somente arquivo, idioma, versão e visibilidade. Temporada e episódio não fazem mais parte do cadastro. Novos arquivos devem ser cadastrados dentro de um projeto.
+Depois de criado, abra o projeto e use **Adicionar legendas**. O formulário permite selecionar vários arquivos de uma vez; cada arquivo é validado individualmente. Arquivos válidos entram na biblioteca mesmo que outro arquivo do lote esteja duplicado ou inválido, e o painel mostra o resumo das ocorrências. Por padrão, são aceitos até 20 arquivos por lote, com 25 MB por arquivo e 100 MB no total. Temporada e episódio não fazem mais parte do cadastro. Novos arquivos devem ser cadastrados dentro de um projeto.
 
-O catálogo público lista projetos, não arquivos soltos. A página pública do projeto mostra a capa, o nome, a quantidade de episódios e os downloads disponíveis. A fonte padrão é a Tenrai, uma API pública com esquema compatível com os campos necessários da Jikan/MAL; a URL do provedor fica configurável para permitir substituição futura.
+Dentro do painel administrativo do projeto, a seção **Fontes** permite cadastrar um nome, uma URL HTTPS e uma descrição opcional. Essas fontes podem ser páginas oficiais, sites de referência ou outras páginas relacionadas ao projeto. Elas só aparecem na página pública quando o projeto estiver compartilhado; projetos privados e suas fontes ficam restritos ao admin. A remoção da fonte é definitiva no banco.
+
+O catálogo público lista projetos, não arquivos soltos. A página pública do projeto possui as abas **Legendas** e **Fontes**. A fonte padrão dos metadados é a Tenrai, uma API pública com esquema compatível com os campos necessários da Jikan/MAL; a URL do provedor fica configurável para permitir substituição futura.
 
 ## 4. Configuração no HestiaCP
 

@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -45,12 +46,17 @@ type ViewData struct {
 	Project          *store.AnimeProject
 	ProjectSubtitles []store.Subtitle
 	LegacySubtitles  []store.Subtitle
+	ProjectSources   []store.ProjectSource
+	ProjectTab       string
+	UploadSummary    string
 	Subtitle         *store.Subtitle
 	Error            string
 	Success          string
 	Link             string
 	PublicLink       string
 	MaxUploadMB      int64
+	MaxUploadFiles   int
+	MaxUploadBatchMB int64
 }
 
 var allowedExtensions = map[string]bool{
@@ -100,6 +106,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/projects/{id}/upload", a.uploadPage)
 	mux.HandleFunc("POST /admin/projects/{id}/upload", a.upload)
 	mux.HandleFunc("POST /admin/projects/{id}/visibility", a.setProjectVisibility)
+	mux.HandleFunc("POST /admin/projects/{id}/sources", a.createProjectSource)
+	mux.HandleFunc("POST /admin/sources/{id}/delete", a.deleteProjectSource)
+
 	mux.HandleFunc("GET /admin/upload", a.legacyUploadRedirect)
 	mux.HandleFunc("POST /admin/upload", a.legacyUploadRedirect)
 	mux.HandleFunc("POST /admin/subtitles/{id}/delete", a.deleteSubtitle)
@@ -172,11 +181,20 @@ func (a *App) project(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	sources, err := a.store.ListProjectSources(r.Context(), project.ID, includePrivate)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
 	var userPtr *store.User
 	if logged {
 		userPtr = &user
 	}
-	a.render(w, "project.html", ViewData{Title: project.Title, User: userPtr, Project: &project, ProjectSubtitles: subs})
+	tab := r.URL.Query().Get("tab")
+	if tab != "sources" {
+		tab = "subtitles"
+	}
+	a.render(w, "project.html", ViewData{Title: project.Title, User: userPtr, Project: &project, ProjectSubtitles: subs, ProjectSources: sources, ProjectTab: tab})
 }
 
 func (a *App) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -342,6 +360,88 @@ func (a *App) setProjectVisibility(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape(message), http.StatusSeeOther)
 }
 
+func (a *App) createProjectSource(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if !a.validCSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
+	}
+	publicID := r.PathValue("id")
+	project, err := a.store.GetProject(r.Context(), publicID, true)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	name := limitString(r.FormValue("name"), 160)
+	sourceURL, err := validateSourceURL(r.FormValue("url"))
+	if err != nil {
+		a.redirectProjectError(w, r, project.PublicID, err.Error())
+		return
+	}
+	if name == "" {
+		a.redirectProjectError(w, r, project.PublicID, "Informe o nome da fonte.")
+		return
+	}
+	publicSourceID, err := randomID()
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	source := store.ProjectSource{ProjectID: project.ID, PublicID: publicSourceID, Name: name, URL: sourceURL, Description: limitString(r.FormValue("description"), 500), CreatedBy: user.ID}
+	if err := a.store.CreateProjectSource(r.Context(), source); err != nil {
+		a.serverError(w, err)
+		return
+	}
+	_ = a.store.Audit(r.Context(), &user.ID, "source_create", nil, clientIP(r), fmt.Sprintf(`{"project_id":%d}`, project.ID))
+	http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape("Fonte adicionada ao projeto."), http.StatusSeeOther)
+}
+
+func (a *App) deleteProjectSource(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if !a.validCSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
+	}
+	source, err := a.store.GetProjectSource(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.Redirect(w, r, "/admin?success="+url.QueryEscape("Fonte já removida ou inexistente."), http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	project, err := a.store.GetProjectByID(r.Context(), source.ProjectID)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	if err := a.store.DeleteProjectSource(r.Context(), source.PublicID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape("Fonte já removida ou inexistente."), http.StatusSeeOther)
+			return
+		}
+		a.serverError(w, err)
+		return
+	}
+	_ = a.store.Audit(r.Context(), &user.ID, "source_delete", nil, clientIP(r), fmt.Sprintf(`{"project_id":%d}`, project.ID))
+	http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape("Fonte removida."), http.StatusSeeOther)
+}
+
+func (a *App) redirectProjectError(w http.ResponseWriter, r *http.Request, publicID, message string) {
+	http.Redirect(w, r, "/admin/projects/"+publicID+"?error="+url.QueryEscape(message), http.StatusSeeOther)
+}
+
 func (a *App) newProjectPage(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.requireAdmin(w, r)
 	if !ok {
@@ -414,11 +514,17 @@ func (a *App) adminProject(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
+	sources, err := a.store.ListProjectSources(r.Context(), project.ID, true)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
 	publicLink := ""
 	if project.Visibility == "public" {
 		publicLink = strings.TrimRight(a.cfg.BaseURL, "/") + "/p/" + project.PublicID
 	}
-	a.render(w, "project-admin.html", ViewData{Title: project.Title, User: &user, Project: &project, ProjectSubtitles: subs, CSRF: a.ensureCSRF(w, r), Success: r.URL.Query().Get("success"), Link: r.URL.Query().Get("link"), PublicLink: publicLink, MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+	a.render(w, "project-admin.html", ViewData{Title: project.Title, User: &user, Project: &project, ProjectSubtitles: subs, ProjectSources: sources, CSRF: a.ensureCSRF(w, r), Success: r.URL.Query().Get("success"), Error: r.URL.Query().Get("error"), UploadSummary: r.URL.Query().Get("summary"), Link: r.URL.Query().Get("link"), PublicLink: publicLink, MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+
 }
 
 func (a *App) accountPage(w http.ResponseWriter, r *http.Request) {
@@ -484,7 +590,7 @@ func (a *App) uploadPage(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	a.render(w, "upload.html", ViewData{Title: "Adicionar legenda", User: &user, Project: &project, CSRF: a.ensureCSRF(w, r), MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+	a.render(w, "upload.html", ViewData{Title: "Adicionar legenda", User: &user, Project: &project, CSRF: a.ensureCSRF(w, r), MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024, MaxUploadFiles: a.cfg.MaxUploadFiles, MaxUploadBatchMB: a.cfg.MaxUploadBatchBytes / 1024 / 1024})
 }
 
 func (a *App) upload(w http.ResponseWriter, r *http.Request) {
@@ -506,119 +612,156 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 		a.serverError(w, err)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxUploadBytes+1024*1024)
-	if err := r.ParseMultipartForm(a.cfg.MaxUploadBytes + 1024*1024); err != nil {
-		a.uploadError(w, r, user, &project, "O upload excede o limite permitido ou é inválido.")
+	batchLimit := a.cfg.MaxUploadBatchBytes + 1024*1024
+	r.Body = http.MaxBytesReader(w, r.Body, batchLimit)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		a.uploadError(w, r, user, &project, "O lote excede o limite total permitido ou é inválido.")
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 	if !a.validCSRF(r) {
 		a.uploadError(w, r, user, &project, "A sessão do formulário expirou. Recarregue a página e tente novamente.")
 		return
 	}
-	file, header, err := r.FormFile("subtitle")
-	if err != nil {
-		a.uploadError(w, r, user, &project, "Selecione um arquivo de legenda.")
+	files := r.MultipartForm.File["subtitle"]
+	if len(files) == 0 {
+		a.uploadError(w, r, user, &project, "Selecione pelo menos um arquivo de legenda.")
 		return
 	}
-	defer file.Close()
+	if len(files) > a.cfg.MaxUploadFiles {
+		a.uploadError(w, r, user, &project, fmt.Sprintf("Selecione no máximo %d arquivos por lote.", a.cfg.MaxUploadFiles))
+		return
+	}
+	language := limitString(defaultString(r.FormValue("language"), "Português"), 64)
+	version := limitString(defaultString(r.FormValue("version"), "1.0"), 64)
+	visibility := "public"
+	if r.FormValue("visibility") == "private" {
+		visibility = "private"
+	}
+	results := make([]uploadResult, 0, len(files))
+	for _, header := range files {
+		result := a.persistUploadedSubtitle(r.Context(), user, project, header, language, version, visibility, clientIP(r))
+		results = append(results, result)
+	}
+	summary, added, failed, duplicates := formatUploadSummary(results)
+	message := fmt.Sprintf("Lote concluído: %d legenda(s) adicionada(s).", added)
+	if failed > 0 || duplicates > 0 {
+		message += fmt.Sprintf(" %d falha(s), %d duplicada(s).", failed, duplicates)
+	}
+	redirect := "/admin/projects/" + project.PublicID + "?success=" + url.QueryEscape(message)
+	if summary != "" {
+		redirect += "&summary=" + url.QueryEscape(summary)
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
+}
 
+type uploadResult struct {
+	Filename string
+	Status   string
+	Reason   string
+}
+
+func (a *App) persistUploadedSubtitle(ctx context.Context, user store.User, project store.AnimeProject, header *multipart.FileHeader, language, version, visibility, ip string) uploadResult {
+	result := uploadResult{Filename: limitString(filepath.Base(header.Filename), 120)}
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if !allowedExtensions[ext] {
-		a.uploadError(w, r, user, &project, "Extensão não permitida. Use SRT, ASS, SSA, VTT ou SUB.")
-		return
+		result.Status = "falha"
+		result.Reason = "extensão não permitida"
+		return result
 	}
-	if header.Size <= 0 || header.Size > a.cfg.MaxUploadBytes {
-		a.uploadError(w, r, user, &project, "O arquivo está vazio ou ultrapassa o limite configurado.")
-		return
+	if header.Size <= 0 {
+		result.Status = "falha"
+		result.Reason = "arquivo vazio"
+		return result
 	}
-	if err := validateSubtitleContent(file); err != nil {
-		a.uploadError(w, r, user, &project, "O arquivo não parece ser uma legenda de texto válida.")
-		return
+	if header.Size > a.cfg.MaxUploadBytes {
+		result.Status = "falha"
+		result.Reason = fmt.Sprintf("ultrapassa %d MB", a.cfg.MaxUploadBytes/1024/1024)
+		return result
 	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		a.serverError(w, err)
-		return
+	file, err := header.Open()
+	if err != nil {
+		result.Status = "falha"
+		result.Reason = "não foi possível abrir o arquivo"
+		return result
 	}
-
+	defer file.Close()
 	storageRoot := filepath.Clean(a.cfg.StorageRoot)
 	tempDir := filepath.Join(storageRoot, "temp")
 	if err := os.MkdirAll(tempDir, 0o750); err != nil {
-		a.serverError(w, err)
-		return
+		result.Status = "falha"
+		result.Reason = "não foi possível preparar o storage"
+		return result
 	}
 	tmp, err := os.CreateTemp(tempDir, "upload-*")
 	if err != nil {
-		a.serverError(w, err)
-		return
+		result.Status = "falha"
+		result.Reason = "não foi possível preparar o arquivo"
+		return result
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	hasher := sha256.New()
-	written, err := io.Copy(io.MultiWriter(tmp, hasher), file)
+	validator := &subtitleContentValidator{}
+	written, copyErr := io.Copy(io.MultiWriter(tmp, hasher, validator), io.LimitReader(file, a.cfg.MaxUploadBytes+1))
 	closeErr := tmp.Close()
-	if err != nil {
-		a.serverError(w, fmt.Errorf("store upload: %w", err))
-		return
+	if copyErr != nil || closeErr != nil {
+		result.Status = "falha"
+		result.Reason = "erro ao ler o arquivo"
+		return result
 	}
-	if closeErr != nil {
-		a.serverError(w, fmt.Errorf("close upload: %w", closeErr))
-		return
+	if validator.invalid {
+		result.Status = "falha"
+		result.Reason = "conteúdo binário ou inválido"
+		return result
 	}
-	if written <= 0 || written > a.cfg.MaxUploadBytes {
-		a.uploadError(w, r, user, &project, "O arquivo ultrapassa o limite configurado.")
-		return
+	if written <= 0 {
+		result.Status = "falha"
+		result.Reason = "arquivo vazio"
+		return result
+	}
+	if written > a.cfg.MaxUploadBytes {
+		result.Status = "falha"
+		result.Reason = fmt.Sprintf("ultrapassa %d MB", a.cfg.MaxUploadBytes/1024/1024)
+		return result
 	}
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 	relativePath := filepath.ToSlash(filepath.Join("subtitles", checksum[:2], checksum[2:4], checksum+ext))
 	finalPath := filepath.Join(storageRoot, filepath.FromSlash(relativePath))
 	if err := os.MkdirAll(filepath.Dir(finalPath), 0o750); err != nil {
-		a.serverError(w, err)
-		return
+		result.Status = "falha"
+		result.Reason = "não foi possível preparar o destino"
+		return result
 	}
-	visibility := "public"
-	if r.FormValue("visibility") == "private" {
-		visibility = "private"
-	}
-
-	// Hard-linking is atomic and fails safely when the same checksum is uploaded concurrently.
 	if err := os.Link(tmpName, finalPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			a.uploadError(w, r, user, &project, "Este arquivo já foi enviado anteriormente.")
-			return
+			result.Status = "duplicada"
+			result.Reason = "este arquivo já foi enviado"
+			return result
 		}
-		a.serverError(w, err)
-		return
+		result.Status = "falha"
+		result.Reason = "não foi possível gravar no storage"
+		return result
 	}
-
 	publicID, err := randomID()
 	if err != nil {
 		_ = os.Remove(finalPath)
-		a.serverError(w, err)
-		return
+		result.Status = "falha"
+		result.Reason = "não foi possível gerar o identificador"
+		return result
 	}
-	projectIDValue := project.ID
-	sub := store.Subtitle{
-		ProjectID:        &projectIDValue,
-		PublicID:         publicID,
-		Title:            project.Title,
-		Language:         limitString(defaultString(r.FormValue("language"), "Português"), 64),
-		Format:           strings.TrimPrefix(ext, "."),
-		OriginalFilename: limitString(filepath.Base(header.Filename), 255),
-		StorageName:      checksum + ext,
-		StoragePath:      relativePath,
-		FileSize:         written,
-		Checksum:         checksum,
-		Version:          limitString(defaultString(r.FormValue("version"), "1.0"), 64),
-		Visibility:       visibility,
-		CreatedBy:        user.ID,
-	}
-	if err := a.store.CreateSubtitle(r.Context(), sub); err != nil {
+	projectID := project.ID
+	sub := store.Subtitle{ProjectID: &projectID, PublicID: publicID, Title: project.Title, Language: language, Format: strings.TrimPrefix(ext, "."), OriginalFilename: limitString(filepath.Base(header.Filename), 255), StorageName: checksum + ext, StoragePath: relativePath, FileSize: written, Checksum: checksum, Version: version, Visibility: visibility, CreatedBy: user.ID}
+	if err := a.store.CreateSubtitle(ctx, sub); err != nil {
 		_ = os.Remove(finalPath)
-		a.serverError(w, err)
-		return
+		result.Status = "falha"
+		result.Reason = "não foi possível salvar no banco"
+		return result
 	}
-	_ = a.store.Audit(r.Context(), &user.ID, "upload", &sub.ID, clientIP(r), `{"filename":"stored","project_id":`+fmt.Sprint(project.ID)+`}`)
-	http.Redirect(w, r, "/admin/projects/"+project.PublicID+"?success="+url.QueryEscape("Legenda adicionada ao projeto."), http.StatusSeeOther)
+	_ = a.store.Audit(ctx, &user.ID, "upload", &sub.ID, ip, fmt.Sprintf(`{"filename":"stored","project_id":%d}`, project.ID))
+	result.Status = "adicionada"
+	result.Reason = "ok"
+	return result
 }
 
 func (a *App) deleteSubtitle(w http.ResponseWriter, r *http.Request) {
@@ -769,7 +912,7 @@ func (a *App) render(w http.ResponseWriter, name string, data ViewData) {
 }
 
 func (a *App) uploadError(w http.ResponseWriter, r *http.Request, user store.User, project *store.AnimeProject, message string) {
-	a.render(w, "upload.html", ViewData{Title: "Adicionar legenda", User: &user, Project: project, CSRF: a.ensureCSRF(w, r), Error: message, MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024})
+	a.render(w, "upload.html", ViewData{Title: "Adicionar legenda", User: &user, Project: project, CSRF: a.ensureCSRF(w, r), Error: message, MaxUploadMB: a.cfg.MaxUploadBytes / 1024 / 1024, MaxUploadFiles: a.cfg.MaxUploadFiles, MaxUploadBatchMB: a.cfg.MaxUploadBatchBytes / 1024 / 1024})
 }
 
 func (a *App) ensureCSRF(w http.ResponseWriter, r *http.Request) string {
@@ -795,6 +938,40 @@ func (a *App) validCSRF(r *http.Request) bool {
 func (a *App) serverError(w http.ResponseWriter, err error) {
 	a.log.Error("server error", "error", err)
 	http.Error(w, "internal server error", http.StatusInternalServerError)
+}
+
+type subtitleContentValidator struct {
+	checked bool
+	invalid bool
+}
+
+func (v *subtitleContentValidator) Write(p []byte) (int, error) {
+	if !v.checked {
+		v.checked = true
+		if bytes.IndexByte(p, 0) >= 0 {
+			v.invalid = true
+		}
+	}
+	return len(p), nil
+}
+
+func formatUploadSummary(results []uploadResult) (string, int, int, int) {
+	var lines []string
+	added, failed, duplicates := 0, 0, 0
+	for _, result := range results {
+		switch result.Status {
+		case "adicionada":
+			added++
+		case "duplicada":
+			duplicates++
+		default:
+			failed++
+		}
+		if result.Status != "adicionada" {
+			lines = append(lines, result.Filename+": "+result.Reason)
+		}
+	}
+	return strings.Join(lines, " | "), added, failed, duplicates
 }
 
 func validateSubtitleContent(file io.Reader) error {
@@ -823,6 +1000,21 @@ func randomID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func validateSourceURL(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", fmt.Errorf("informe a URL da fonte")
+	}
+	if len([]rune(value)) > 1024 || strings.ContainsAny(value, "\r\n") {
+		return "", fmt.Errorf("a URL da fonte é muito longa ou inválida")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return "", fmt.Errorf("a fonte precisa ser uma URL HTTPS válida")
+	}
+	return value, nil
 }
 
 func clientIP(r *http.Request) string {

@@ -45,7 +45,23 @@ CREATE TABLE IF NOT EXISTS anime_projects (
     INDEX idx_projects_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS sessions (
+	CREATE TABLE IF NOT EXISTS project_sources (
+	    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+	    project_id BIGINT UNSIGNED NOT NULL,
+	    public_id CHAR(32) NOT NULL UNIQUE,
+	    name VARCHAR(160) NOT NULL,
+	    url VARCHAR(1024) NOT NULL,
+	    description VARCHAR(500) NOT NULL DEFAULT '',
+	    created_by BIGINT UNSIGNED NOT NULL,
+	    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+	    CONSTRAINT fk_sources_project FOREIGN KEY (project_id) REFERENCES anime_projects(id) ON DELETE CASCADE,
+	    CONSTRAINT fk_sources_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+	    INDEX idx_sources_project (project_id, created_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+	CREATE TABLE IF NOT EXISTS sessions (
+
     token_hash CHAR(64) NOT NULL PRIMARY KEY,
     user_id BIGINT UNSIGNED NOT NULL,
     expires_at DATETIME NOT NULL,
@@ -129,6 +145,18 @@ type AnimeProject struct {
 	CreatedBy     uint64
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+type ProjectSource struct {
+	ID          uint64
+	ProjectID   uint64
+	PublicID    string
+	Name        string
+	URL         string
+	Description string
+	CreatedBy   uint64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type Subtitle struct {
@@ -428,6 +456,56 @@ func (s *Store) GetProject(ctx context.Context, publicID string, includePrivate 
 		return AnimeProject{}, ErrNotFound
 	}
 	return project, err
+}
+
+func (s *Store) ListProjectSources(ctx context.Context, projectID uint64, includePrivate bool) ([]ProjectSource, error) {
+	visibility := "JOIN anime_projects p ON p.id = ps.project_id WHERE ps.project_id = ? AND p.visibility = 'public'"
+	if includePrivate {
+		visibility = "WHERE ps.project_id = ?"
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT ps.id, ps.project_id, ps.public_id, ps.name, ps.url, ps.description, ps.created_by, ps.created_at, ps.updated_at FROM project_sources ps `+visibility+` ORDER BY ps.created_at ASC, ps.id ASC`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []ProjectSource
+	for rows.Next() {
+		var source ProjectSource
+		if err := rows.Scan(&source.ID, &source.ProjectID, &source.PublicID, &source.Name, &source.URL, &source.Description, &source.CreatedBy, &source.CreatedAt, &source.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, source)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) CreateProjectSource(ctx context.Context, source ProjectSource) error {
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO project_sources (project_id, public_id, name, url, description, created_by) VALUES (?, ?, ?, ?, ?, ?)`, source.ProjectID, source.PublicID, source.Name, source.URL, source.Description, source.CreatedBy)
+	return err
+}
+
+func (s *Store) GetProjectSource(ctx context.Context, publicID string) (ProjectSource, error) {
+	var source ProjectSource
+	err := s.DB.QueryRowContext(ctx, `SELECT id, project_id, public_id, name, url, description, created_by, created_at, updated_at FROM project_sources WHERE public_id = ?`, publicID).Scan(&source.ID, &source.ProjectID, &source.PublicID, &source.Name, &source.URL, &source.Description, &source.CreatedBy, &source.CreatedAt, &source.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ProjectSource{}, ErrNotFound
+	}
+	return source, err
+}
+
+func (s *Store) DeleteProjectSource(ctx context.Context, publicID string) error {
+	result, err := s.DB.ExecContext(ctx, `DELETE FROM project_sources WHERE public_id = ?`, publicID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) ListProjectSubtitles(ctx context.Context, projectID uint64, includePrivate bool) ([]Subtitle, error) {
