@@ -129,8 +129,11 @@ func (a *App) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.myanimelist.net; form-action 'self'; base-uri 'self'; frame-ancestors 'none'")
-		if strings.HasPrefix(r.URL.Path, "/admin") || r.URL.Path == "/login" {
-			w.Header().Set("Cache-Control", "no-store")
+		if !strings.HasPrefix(r.URL.Path, "/static/") {
+			w.Header().Set("Cache-Control", "no-store, max-age=0")
+			w.Header().Set("CDN-Cache-Control", "no-store")
+			w.Header().Set("Surrogate-Control", "no-store")
+			w.Header().Add("Vary", "Cookie")
 		}
 		start := time.Now()
 		next.ServeHTTP(w, r)

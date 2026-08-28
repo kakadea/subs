@@ -91,6 +91,24 @@ func TestContentType(t *testing.T) {
 	}
 }
 
+func TestDynamicResponsesAreNotCached(t *testing.T) {
+	a := New(config.Config{}, store.New(nil), slog.Default())
+	handler := a.middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	for _, path := range []string{"/", "/p/project", "/login", "/admin"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		handler.ServeHTTP(resp, req)
+		if got := resp.Header().Get("Cache-Control"); got != "no-store, max-age=0" {
+			t.Fatalf("%s cache-control = %q", path, got)
+		}
+		if got := resp.Header().Get("CDN-Cache-Control"); got != "no-store" {
+			t.Fatalf("%s cdn-cache-control = %q", path, got)
+		}
+	}
+}
+
 func TestAdminRequiresLogin(t *testing.T) {
 	a := New(config.Config{SessionCookieName: "subs_session"}, store.New(nil), slog.Default())
 	for _, path := range []string{"/admin", "/admin/upload", "/admin/projects/new"} {
@@ -103,7 +121,7 @@ func TestAdminRequiresLogin(t *testing.T) {
 		if location := resp.Header().Get("Location"); !strings.HasPrefix(location, "/login?next=") {
 			t.Fatalf("%s location = %q", path, location)
 		}
-		if got := resp.Header().Get("Cache-Control"); got != "no-store" {
+		if got := resp.Header().Get("Cache-Control"); got != "no-store, max-age=0" {
 			t.Fatalf("%s cache-control = %q", path, got)
 		}
 	}
